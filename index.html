@@ -1,1532 +1,2564 @@
 <!DOCTYPE html>
 <html lang="id">
 <head>
-  <meta charset="UTF-8">
-  <title>Aplikasi Keuangan + Kuitansi</title>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>BASTK — Berita Acara Serah Terima Kendaraan</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
 
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      max-width: 950px;
-      margin: 20px auto;
-      font-size: 14px;
-    }
+function doPrintAllSaved(){
+  const saved = readSaved();
+  if(!saved || !saved.length){ alert('Belum ada dokumen tersimpan.'); return; }
+  const _logo = getLogo();
+  const _sign = getSign();
+  const papers = saved.map(function(d){ return buildPaperHTML(d, _logo, _sign); }).join('\n');
+  printHTMLDocuments(papers, 'BASTK-semua-tersimpan');
+  showToast('Print ' + saved.length + ' dokumen tersimpan…', 'ok');
+}
 
-    h1, h2, h3 { margin-top: 15px; }
+function doLoadAllSaved(){
+  const saved = readSaved();
+  if(!saved || !saved.length){ alert('Belum ada dokumen tersimpan.'); return; }
 
-    form {
-      margin-bottom: 20px;
-      padding: 15px;
-      border: 1px solid #ccc;
-      border-radius: 5px;
-      background: #fafafa;
-    }
+  navSavedQueue = saved.slice();
+  navSavedIdx   = 0;
+  loadNavSaved(0);
+  showToast('Memuat ' + saved.length + ' dokumen ke preview.', 'ok');
+}
+let navSavedQueue = [];
+let navSavedIdx   = 0;
+function loadNavSaved(idx){
+  if(!navSavedQueue.length) return;
+  const d = navSavedQueue[idx];
+  if(!d) return;
+  loadDoc(d);
+  syncToPaper();
 
-    label { display:block; margin-top:8px; }
+  const counter = document.getElementById('navCounter');
+  const nopol   = document.getElementById('navNopol');
+  if(counter) counter.textContent = (idx+1) + ' / ' + navSavedQueue.length;
+  if(nopol)   nopol.textContent   = d.noPol || '-';
 
-    input, select, textarea, button {
-      padding: 7px;
-      box-sizing: border-box;
-      margin-top:3px;
-      font-family: inherit;
-      font-size: 14px;
-    }
+  const btnPrev = document.getElementById('btnPrev');
+  const btnNext = document.getElementById('btnNext');
+  if(btnPrev) btnPrev.disabled = (idx === 0);
+  if(btnNext) btnNext.disabled = (idx === navSavedQueue.length - 1);
+  navSavedIdx = idx;
+}
 
-    input, select, textarea {
-      width: 100%;
-    }
-
-    button {
-      width: auto;
-      cursor: pointer;
-    }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 10px;
-    }
-
-    th, td {
-      border: 1px solid #ccc;
-      padding: 6px;
-      font-size: 13px;
-    }
-
-    th { background: #f7f7f7; }
-
-    .ringkasan {
-      border: 1px solid #ccc;
-      padding: 10px;
-      margin-top: 15px;
-      border-radius: 5px;
-      background:#fcfcfc;
-    }
-
-    #search-box {
-      margin-top: 15px;
-      margin-bottom: 5px;
-    }
-
-    #search-input {
-      width: 100%;
-      padding: 7px;
-      box-sizing: border-box;
-    }
-
-    #kuitansi-wrapper { display:none; }
-
-    .hidden { display:none; }
-
-    .autocomplete-wrap {
-      position: relative;
-      width: 100%;
-    }
-
-    #keterangan {
-      resize: vertical;
-      min-height: 86px;
-    }
-
-    #keterangan-suggestions {
-      position: absolute;
-      top: calc(100% + 2px);
-      left: 0;
-      right: 0;
-      background: #fff;
-      border: 1px solid #cfcfcf;
-      border-radius: 4px;
-      box-shadow: 0 4px 10px rgba(0,0,0,.08);
-      z-index: 999;
-      max-height: 220px;
-      overflow-y: auto;
-      display: none;
-    }
-
-    .keterangan-item {
-      padding: 8px 10px;
-      border-bottom: 1px solid #eee;
-      cursor: pointer;
-      white-space: pre-wrap;
-      line-height: 1.35;
-      background: #fff;
-    }
-
-    .keterangan-item:last-child {
-      border-bottom: none;
-    }
-
-    .keterangan-item:hover,
-    .keterangan-item.active {
-      background: #eef5ff;
-    }
-
-    .keterangan-hint {
-      margin-top: 4px;
-      font-size: 12px;
-      color: #666;
-    }
-
-    .app-copyright {
-      text-align: center;
-      margin-top: 18px;
-      margin-bottom: 8px;
-      font-size: 13px;
-      color: #000;
-      font-weight: 600;
-      letter-spacing: 0.3px;
-    }
-
-    .app-copyright .icon {
-      color: #000;
-    }
-
-    .kuitansi-box {
-      border: 1px solid #000;
-      padding: 10px;
-      font-size: 11px !important;
-      width: 204mm;
-      min-height: 9.5cm;
-      height: auto;
-      box-sizing: border-box;
-      margin: 0 auto;
-      position: relative;
-    }
-
-    .kuitansi-header {
-      display:flex;
-      justify-content:space-between;
-      align-items:center;
-      font-size: 11px !important;
-      margin-bottom:6px;
-    }
-
-    .judul {
-      text-align:center;
-      font-family: "Bodoni MT", serif;
-      font-weight:bold;
-      text-decoration:underline;
-      margin-bottom:10px;
-      font-size: 12pt;
-    }
-
-    .judul-kuning{
-      background:#ffeb3b;
-      padding: 3px 0;
-      display:block;
-      width:100%;
-      line-height:1.2;
-    }
-
-    .no-border-table {
-      width:100%;
-      font-size: 11px !important;
-    }
-
-    .no-border-table td {
-      border:none !important;
-      padding:3px 3px;
-      font-size: 11px !important;
-      vertical-align: top;
-    }
-
-    .terbilang {
-      font-style:italic;
-      font-size: 11px !important;
-    }
-
-    .nominal-box {
-      border: 2px solid #000;
-      min-width: 4.5cm;
-      width: 4.5cm;
-      height: 1.2cm;
-      line-height: 1.2cm;
-      padding: 0 8px;
-      font-size: 24px;
-      font-weight: bold;
-      text-align: center;
-      display: inline-block;
-      margin-top: 10px;
-      white-space: nowrap;
-    }
-
-    .ket-pembayaran{
-      line-height: 1.35;
-    }
-
-    .rek-box {
-      border: 1px solid #000;
-      display: inline-block;
-      margin-top: 5px;
-      padding: 2px 10px;
-      font-size: 10px;
-      min-width: 9cm;
-    }
-
-    .direksi-table {
-      width:100%;
-      margin-top:18px;
-      text-align:center;
-      font-size: 11px !important;
-    }
-
-    .direksi-table td {
-      border:none !important;
-      padding:4px 10px !important;
-      font-size: 11px !important;
-      white-space: nowrap;
-    }
-
-    .direksi-table tr:first-child td {
-      padding-top:6px !important;
-      padding-bottom:1px !important;
-    }
-
-    .direksi-table tr:last-child td {
-      padding-top:0 !important;
-    }
-
-    .nama-bold {
-      font-weight:bold;
-      text-decoration:underline;
-      font-size: 11px !important;
-    }
-
-    .mengetahui-block {
-      text-align:center;
-      line-height: 14px;
-      margin-top: -2px;
-      margin-bottom: 4px;
-      font-size:11px !important;
-    }
-
-    .bank-flag {
-      position:absolute;
-      top: 50px;
-      right: 1.5cm;
-      font-weight:bold;
-      font-size:30px;
-      z-index: 10;
-    }
-
-    .unit-flag-abs{
-      position:absolute;
-      top: 26px;
-      right: 1.5cm;
-      background:#ffeb3b;
-      color:#000;
-      border:1px solid #000;
-      font-weight:bold;
-      font-size:11px;
-      padding:4px 14px;
-      text-transform:uppercase;
-      box-sizing:border-box;
-      z-index: 20;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-
-    #settings-page {
-      border: 1px solid #ccc;
-      padding: 15px;
-      border-radius: 5px;
-      margin-top:20px;
-      background:#ffffff;
-    }
-
-    #logoPreview img {
-      max-height: 40px;
-      margin-top: 5px;
-    }
-
-    #menu-button {
-      position: fixed;
-      top: 15px;
-      right: 20px;
-      font-size: 28px;
-      cursor: pointer;
-      z-index: 999;
-      user-select: none;
-    }
-
-    @page { margin: 5mm 3mm 3mm 3mm; }
-
-    @media print {
-      * {
-        -webkit-print-color-adjust: exact !important;
-        print-color-adjust: exact !important;
+(function(){
+  document.addEventListener('DOMContentLoaded', function(){
+    var bP = document.getElementById('btnPrev');
+    var bN = document.getElementById('btnNext');
+    if(bP) bP.addEventListener('click', function(){
+      if(navSavedQueue.length > 0 && navSavedIdx > 0){
+        loadNavSaved(navSavedIdx - 1);
       }
-
-      body { margin: 0; }
-
-      #main, #settings-page, #menu-button { display:none !important; }
-      #kuitansi-wrapper { display:block !important; }
-      .kuitansi-box { margin-top: 0; }
+    });
+    if(bN) bN.addEventListener('click', function(){
+      if(navSavedQueue.length > 0 && navSavedIdx < navSavedQueue.length - 1){
+        loadNavSaved(navSavedIdx + 1);
+      }
+    });
+  });
+})();
+</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=optional" rel="stylesheet">
+  <style>
+    
+    :root {
+      --pri:#2563eb; --pri-d:#1d4ed8; --pri-l:#eff6ff; --pri-r:#bfdbfe;
+      --ok:#16a34a; --ok-l:#f0fdf4;
+      --err:#dc2626; --err-l:#fef2f2;
+      --warn:#d97706; --warn-l:#fffbeb;
+      --bg:#f0f4f8;
+      --s0:#ffffff; --s1:#f8fafc; --s2:#f1f5f9;
+      --bd:#e2e8f0; --bd2:#cbd5e1;
+      --t0:#0f172a; --t1:#475569; --t2:#94a3b8;
+      --r4:4px; --r8:8px; --r12:12px; --r16:16px;
+      --sh:0 1px 3px rgba(0,0,0,.07),0 1px 2px rgba(0,0,0,.04);
+      --sh2:0 4px 16px rgba(0,0,0,.08),0 2px 6px rgba(0,0,0,.04);
+      --tr:.18s ease;
+      
+      --ink:#111; --link:#0563C1; --muted:#666;
     }
-  </style>
-</head>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    html{font-size:14px}
+    body{font-family:'Inter',Arial,sans-serif;background:var(--bg);color:var(--t0);min-height:100vh}
 
+    
+    .topbar{
+      position:sticky;top:0;z-index:200;
+      background:var(--s0);border-bottom:1px solid var(--bd);
+      box-shadow:0 1px 8px rgba(0,0,0,.06);
+      padding:10px 20px;
+      display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+    }
+    .brand{display:flex;align-items:center;gap:10px;flex-shrink:0}
+    .brand-logo{
+      width:36px;height:36px;border-radius:10px;flex-shrink:0;
+      background:linear-gradient(135deg,var(--pri),#6366f1);
+      display:flex;align-items:center;justify-content:center;
+      color:#fff;font-weight:800;font-size:13px;letter-spacing:-.3px;
+    }
+    .brand-name{font-size:14px;font-weight:700;line-height:1.2}
+    .brand-sub{font-size:11px;color:var(--t1);line-height:1.2}
+    .topbar-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto}
+    .print-hint{
+      font-size:11px;color:var(--t2);background:var(--s2);
+      padding:5px 10px;border-radius:20px;white-space:nowrap;
+    }
+
+    
+    .btn{
+      display:inline-flex;align-items:center;justify-content:center;gap:5px;
+      padding:8px 14px;font-family:inherit;font-size:12px;font-weight:600;
+      border-radius:var(--r8);border:1.5px solid var(--bd);
+      background:var(--s0);color:var(--t0);cursor:pointer;
+      white-space:nowrap;line-height:1;transition:all var(--tr);
+      flex-shrink:0;
+    }
+    .btn:hover{background:var(--s2);border-color:var(--bd2);box-shadow:var(--sh)}
+    .btn:active{transform:scale(.97)}
+    .btn svg{width:13px;height:13px;flex-shrink:0}
+    .btn-pri{background:var(--pri);color:#fff;border-color:var(--pri);box-shadow:0 2px 8px rgba(37,99,235,.25)}
+    .btn-pri:hover{background:var(--pri-d);border-color:var(--pri-d);box-shadow:0 4px 12px rgba(37,99,235,.35)}
+    .btn-ok{background:var(--ok);color:#fff;border-color:var(--ok)}
+    .btn-ok:hover{background:#15803d;border-color:#15803d}
+    .btn-ghost{background:transparent;border-color:transparent;color:var(--t1)}
+    .btn-ghost:hover{background:var(--s2);border-color:var(--bd)}
+    .btn-danger{background:var(--s0);color:var(--err);border-color:#fca5a5}
+    .btn-danger:hover{background:var(--err-l);border-color:var(--err)}
+    .btn-sm{padding:6px 10px;font-size:11px}
+
+    @media(max-width:900px){.btn-hide{display:none!important}}
+
+    
+    .app{max-width:1400px;margin:0 auto;padding:20px 16px 80px}
+    .credit{
+      text-align:center;
+      padding:18px 0 10px;
+      font-size:11.5px;
+      color:var(--t2);
+      opacity:0.55;
+      letter-spacing:0.3px;
+      user-select:none;
+      pointer-events:none;
+    }
+    .credit span{
+      font-weight:600;
+      color:var(--t1);
+      opacity:0.7;
+    }
+    .layout{display:grid;grid-template-columns:380px 1fr;gap:20px;align-items:start}
+    @media(max-width:1100px){.layout{grid-template-columns:1fr}}
+    @media(min-width:1101px){.layout{align-items:start}}
+
+    
+    .sidebar{
+      display:flex;flex-direction:column;gap:12px;
+    }
+
+    
+    .acc{
+      background:var(--s0);border:1px solid var(--bd);
+      border-radius:var(--r16);box-shadow:var(--sh);
+      overflow:hidden;
+    }
+    .acc-head{
+      display:flex;align-items:center;gap:10px;
+      padding:13px 15px;cursor:pointer;user-select:none;
+      transition:background var(--tr);
+      
+      min-height:56px;
+    }
+    .acc-head:hover{background:var(--s1)}
+    .acc-icon{
+      width:34px;height:34px;border-radius:9px;
+      display:flex;align-items:center;justify-content:center;
+      font-size:16px;flex-shrink:0;
+    }
+    .ic-blue{background:var(--pri-l)}
+    .ic-green{background:var(--ok-l)}
+    .ic-amber{background:var(--warn-l)}
+    .ic-slate{background:var(--s2)}
+    .acc-meta{flex:1;min-width:0}
+    .acc-title{font-size:13px;font-weight:700;color:var(--t0);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .acc-sub{font-size:11px;color:var(--t2);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .acc-arrow{
+      width:20px;height:20px;flex-shrink:0;
+      display:flex;align-items:center;justify-content:center;
+      color:var(--t2);transition:transform var(--tr);font-size:10px;
+    }
+    .acc-arrow.open{transform:rotate(180deg)}
+
+    
+    .acc-body{
+      max-height:0;
+      overflow:hidden;
+      transition:max-height .35s cubic-bezier(0,1,.5,1);
+    }
+    .acc-body.open{
+      max-height:9999px;
+      overflow:visible;
+    }
+    .acc-inner{ overflow:visible; }
+    .acc-inner-pad{padding:0 15px 16px}
+
+    
+    .fg{margin-top:11px}
+    .fl{
+      display:block;font-size:11.5px;font-weight:600;
+      color:var(--t1);margin-bottom:4px;
+    }
+    .fl .req{color:var(--err);margin-left:2px}
+    .section-label{
+      display:block;font-size:10.5px;font-weight:700;
+      text-transform:uppercase;letter-spacing:.6px;
+      margin:14px 0 6px;padding:5px 8px;border-radius:6px;
+    }
+    .sl-blue{color:var(--pri);background:var(--pri-l)}
+    .sl-green{color:var(--ok);background:var(--ok-l)}
+    .sl-muted{color:var(--t2);background:var(--s2)}
+
+    input:not([type=file]):not([type=checkbox]),
+    select, textarea{
+      display:block;width:100%;
+      padding:8px 11px;font-family:inherit;font-size:13px;
+      color:var(--t0);background:var(--s0);
+      border:1.5px solid var(--bd);border-radius:var(--r8);
+      transition:border-color var(--tr),box-shadow var(--tr);
+      line-height:1.4;min-width:0;
+    }
+    input:not([type=file]):not([type=checkbox]):focus,
+    select:focus, textarea:focus{
+      outline:none;border-color:var(--pri);
+      box-shadow:0 0 0 3px var(--pri-r);
+    }
+    input[readonly]{background:var(--s2);color:var(--t1);cursor:default}
+    textarea{min-height:62px;resize:vertical}
+    select{
+      appearance:none;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;background-position:right 10px center;padding-right:30px;
+    }
+    .frow{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .frow>*{min-width:0}
+    @media(max-width:500px){.frow{grid-template-columns:1fr}}
+
+    .hr{border:none;border-top:1px solid var(--bd);margin:13px 0}
+    .hint{font-size:11px;color:var(--t2);margin-top:4px;line-height:1.45}
+
+    
+    input[type=file]{display:none}
+    .file-btn{
+      display:flex;align-items:center;gap:8px;
+      padding:9px 12px;border:1.5px dashed var(--bd);
+      border-radius:var(--r8);cursor:pointer;
+      color:var(--t1);font-size:12px;font-weight:500;
+      transition:all var(--tr);width:100%;
+    }
+    .file-btn:hover{border-color:var(--pri);color:var(--pri);background:var(--pri-l)}
+    .file-btn svg{width:15px;height:15px;flex-shrink:0}
+    .file-btn span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+    
+    .badge{
+      display:inline-flex;align-items:center;gap:4px;
+      font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;margin-top:5px;
+    }
+    .badge-ok{background:var(--ok-l);color:var(--ok)}
+    .badge-no{background:var(--s2);color:var(--t2)}
+    .badge-warn{background:var(--warn-l);color:var(--warn)}
+
+    
+    .chips-box{
+      background:var(--s1);border:1.5px solid var(--bd);
+      border-radius:var(--r8);padding:10px;margin-top:10px;
+    }
+    .chips-head{
+      display:flex;align-items:center;justify-content:space-between;
+      margin-bottom:8px;flex-wrap:wrap;gap:6px;
+    }
+    .chips-lbl{font-size:11.5px;font-weight:600;color:var(--t1)}
+    .chips-all{display:flex;align-items:center;gap:5px;font-size:12px;font-weight:600;cursor:pointer}
+    .chips-all input{width:14px;height:14px;flex-shrink:0;cursor:pointer}
+    .chips{display:flex;flex-wrap:wrap;gap:6px}
+    .chip{
+      display:inline-flex;align-items:center;gap:6px;
+      padding:5px 10px;background:var(--s0);
+      border:1.5px solid var(--bd);border-radius:20px;
+      font-size:11.5px;font-weight:500;color:var(--t0);
+      cursor:pointer;transition:all var(--tr);user-select:none;
+    }
+    .chip:hover{border-color:var(--pri);color:var(--pri);background:var(--pri-l)}
+    
+    .chip:has(input:checked),
+    .chip.selected{background:var(--pri-l);border-color:var(--pri);color:var(--pri)}
+    
+    .chip input[type=checkbox]{
+      display:none;
+    }
+    
+    .chip:has(input:checked)::before{
+      content:"✓";
+      font-size:11px;
+      font-weight:700;
+      color:var(--pri);
+    }
+    
+    #btnToggleChips{
+      display:block;text-align:center;font-size:11px;color:var(--pri);
+      background:none;border:none;cursor:pointer;margin-top:6px;
+      padding:2px;font-family:inherit;
+    }
+
+    
+    .preview-wrap{
+      background:var(--s0);border:1px solid var(--bd);
+      border-radius:var(--r16);box-shadow:var(--sh2);
+    }
+    .preview-bar{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:11px 16px;border-bottom:1px solid var(--bd);
+      background:var(--s1);flex-wrap:wrap;gap:8px;
+      border-radius:var(--r16) var(--r16) 0 0;
+    }
+    
+    .nav-wrap{
+      display:flex;align-items:center;gap:10px;
+    }
+    .nav-btn{
+      display:flex;align-items:center;justify-content:center;
+      width:34px;height:34px;border-radius:50%;
+      border:1.5px solid var(--bd);background:var(--s0);
+      cursor:pointer;transition:all var(--tr);flex-shrink:0;
+      color:var(--t1);font-size:16px;
+    }
+    .nav-btn:hover:not(:disabled){background:var(--pri);border-color:var(--pri);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.3);}
+    .nav-btn:disabled{opacity:.3;cursor:default;}
+    .nav-info{
+      display:flex;flex-direction:column;align-items:center;
+      min-width:120px;
+    }
+    .nav-counter{
+      font-size:12px;font-weight:700;color:var(--t0);
+    }
+    .nav-nopol{
+      font-size:11px;color:var(--t2);margin-top:1px;
+      max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+    }
+    .preview-bar-left{display:flex;align-items:center;gap:8px}
+    .live-dot{
+      width:8px;height:8px;background:#22c55e;border-radius:50%;
+      animation:pulse 2s infinite;
+    }
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+    .preview-bar-label{font-size:12px;font-weight:600;color:var(--t1)}
+    .preview-bar-hint{font-size:11px;color:var(--t2)}
+
+    .paper-scroll{padding:16px;overflow-x:auto;overflow-y:visible}
+
+    
+    .paper{width:210mm;height:297mm;position:relative;background:#fff;margin:0 auto}
+    .frame{position:absolute;left:6mm;top:6mm;right:6mm;bottom:6mm;border:1px solid var(--ink)}
+    .t{position:absolute;font-size:11.7px;line-height:1.25;color:var(--ink);white-space:pre-wrap}
+    .center{text-align:center}
+    .bold{font-weight:900}
+    .linklike{color:var(--ink);text-decoration:none;font-weight:400}
+    .linkBold{font-weight:900!important}
+    .footRed{color:#c00000;font-weight:900}
+    .footBlue{color:var(--link);font-weight:900}
+    .logoBox{position:absolute;left:0;right:0;top:11mm;text-align:center}
+    .logoImg{height:20mm;max-width:80mm;object-fit:contain;display:inline-block}
+    .title{font-family:Calibri,Arial,sans-serif;font-weight:900;font-size:15.3px;letter-spacing:.6px}
+    .footerLine{position:absolute;left:12mm;right:12mm;bottom:19mm;border-top:1px solid var(--ink)}
+    .footer{position:absolute;left:12mm;right:12mm;bottom:10mm;font-size:9.6px;line-height:1.15}
+    .note{position:absolute;left:14mm;right:14mm;bottom:20mm;font-size:10.8px;font-style:italic}
+    .box{
+  width:4.5mm;height:4.5mm;
+  border:1px solid var(--ink);
+  box-sizing:border-box;
+  display:block;
+  position:absolute;
+  top:50%;
+  left:0;
+  transform:translateY(-50%);
+}
+.box-wrap{
+  position:relative;
+  display:inline-block;
+  width:4.5mm;
+  height:100%;
+}
+    .signPengurus{position:absolute;left:var(--signLeft,132mm);top:var(--signTop,196mm);width:var(--signW,78mm);height:var(--signH,26mm);text-align:center;pointer-events:none;z-index:2}
+    .signImg{max-width:100%;max-height:100%;object-fit:contain;display:inline-block;transform:scale(var(--signScale,1.15));transform-origin:center center}
+
+    
+    
+    .sign-pad-wrap{
+      position:relative; border:1.5px solid var(--bd);
+      border-radius:var(--r8); background:#fff;
+      overflow:hidden; touch-action:none;
+      margin-top:4px;
+    }
+    .sign-pad-wrap canvas{
+      display:block; width:100%; height:100%;
+      cursor:crosshair;
+    }
+    .sign-pad-hint{
+      position:absolute; bottom:6px; right:10px;
+      font-size:10px; color:var(--t2); pointer-events:none;
+      user-select:none;
+    }
+    .sign-pad-placeholder{
+      position:absolute; top:50%; left:50%;
+      transform:translate(-50%,-50%);
+      font-size:12px; color:var(--t2); pointer-events:none;
+      user-select:none; text-align:center; line-height:1.5;
+    }
+    
+    .tbl-wrap{padding:0 16px 16px}
+    .tbl-title{font-size:12px;font-weight:700;color:var(--t1);padding:14px 0 8px;display:flex;align-items:center;gap:6px}
+    .tbl{width:100%;border-collapse:collapse;font-size:12px}
+    .tbl th{background:var(--s1);font-weight:700;color:var(--t1);padding:8px 10px;text-align:left;border-bottom:2px solid var(--bd);font-size:10.5px;text-transform:uppercase;letter-spacing:.5px}
+    .tbl td{padding:8px 10px;border-bottom:1px solid var(--bd);vertical-align:middle;color:var(--t0)}
+    .tbl tr:last-child td{border-bottom:none}
+    .tbl tr:hover td{background:var(--s1)}
+    .tbl-empty{text-align:center;color:var(--t2);padding:24px!important}
+    .actions{display:flex;gap:5px;flex-wrap:wrap}
+
+    
+    .toast-wrap{position:fixed;bottom:24px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:9999}
+    .toast{
+      display:flex;align-items:center;gap:10px;
+      padding:11px 16px;background:var(--t0);color:#fff;
+      font-size:13px;font-weight:500;border-radius:var(--r12);
+      box-shadow:0 8px 28px rgba(0,0,0,.18);
+      animation:tin .22s ease;pointer-events:none;
+    }
+    .toast-ok{background:#15803d}
+    .toast-warn{background:#b45309}
+    .toast-err{background:var(--err)}
+    @keyframes tin{from{opacity:0;transform:translateY(10px) scale(.95)}to{opacity:1;transform:none}}
+    @keyframes tout{from{opacity:1}to{opacity:0;transform:translateY(6px)}}
+    .toast.out{animation:tout .2s ease forwards}
+
+    
+    @page{size:A4;margin:0}
+    @media print{
+      @page{size:A4;margin:0}
+      body{margin:0;background:#fff}
+      .topbar,.sidebar,.preview-bar,.tbl-wrap,.printHide{display:none!important}
+      .layout{display:block!important}
+      .preview-wrap{border:none!important;box-shadow:none!important;border-radius:0!important;padding:0!important;margin:0!important}
+      .paper-scroll{padding:0!important;margin:0!important;overflow:visible!important}
+      .frame{display:none!important}
+      .paper{margin:0!important;box-shadow:none!important;}
+      .app{padding:0!important;max-width:none!important;}
+    }
+
+    
+    ::-webkit-scrollbar{width:5px;height:5px}
+    ::-webkit-scrollbar-track{background:transparent}
+    ::-webkit-scrollbar-thumb{background:var(--bd2);border-radius:99px}
+
+    
+    @keyframes spin { to { transform: rotate(360deg) } }
+    #pdfProgressWrap {
+      display: none;
+      align-items: center;
+      gap: 8px;
+      background: var(--warn-l);
+      border: 1.5px solid #fcd34d;
+      border-radius: var(--r8);
+      padding: 6px 12px;
+      min-width: 240px;
+      flex-shrink: 0;
+    }
+    #pdfSpinner { flex-shrink:0; animation: spin .9s linear infinite; }
+    #pdfProgressTrack { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
+    #pdfProgressTop { display:flex; justify-content:space-between; align-items:center; }
+    #pdfProgressLabel { font-size:11px; font-weight:600; color:#92400e; white-space:nowrap; }
+    #pdfProgressPct { font-size:11px; font-weight:700; color:#b45309; margin-left:8px; }
+    #pdfProgressBarBg { width:100%; height:5px; background:#fde68a; border-radius:99px; overflow:hidden; }
+    #pdfProgressBar {
+      height:100%; width:0%;
+      background: linear-gradient(90deg,#f59e0b,#d97706);
+      border-radius:99px;
+      transition: width .25s ease;
+    }
+    #btnCancelPdf {
+      display:inline-flex; align-items:center; gap:5px;
+      padding:8px 14px;
+      font-family:inherit; font-size:12px; font-weight:600;
+      background:var(--s0); color:#dc2626;
+      border:1.5px solid #fca5a5;
+      border-radius:var(--r8);
+      cursor:pointer;
+      transition:all .18s ease;
+      white-space:nowrap;
+      line-height:1;
+      flex-shrink:0;
+    }
+    #btnCancelPdf:hover:not(:disabled) { background:#fef2f2; border-color:#dc2626; box-shadow:var(--sh); }
+    #btnCancelPdf:disabled { opacity:.35; cursor:not-allowed; filter:grayscale(.4); }
+    #btnCancelPdf svg { width:13px; height:13px; flex-shrink:0; }
+    
+  </style>
+
+</head>
 <body>
 
-<div id="menu-button" title="Pengaturan">⋮</div>
-
-<div id="main">
-  <div style="margin-bottom:10px; padding:8px; border:1px solid #eee; background:#fafafa;">
-    Mode: <strong>Offline / Laptop Pribadi</strong> – data disimpan di browser ini (localStorage).
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-logo">BA</div>
+    <div>
+      <div class="brand-name">Berita Acara Serah Terima Kendaraan</div>
+      <div class="brand-sub">Kopposindo</div>
+    </div>
   </div>
+  <div class="topbar-actions">
+    
+    <button class="btn btn-pri" id="btnPrintOne" onclick="doPrintCurrentFixed()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print Dokumen Ini
+    </button>
+    <button class="btn btn-ok" id="btnPrintAll" onclick="doPrintAllFixed()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+      Print Terpilih
+    </button>
+    <button class="btn" id="btnSavePdfOne" onclick="doSavePdfOne(false)" style="background:#7c3aed;color:#fff;border-color:#6d28d9;box-shadow:0 2px 8px rgba(124,58,237,.25);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      PDF (Ini)
+    </button>
+    <button class="btn" id="btnSavePdfOneHD" onclick="doSavePdfOne(true)" style="background:#6d28d9;color:#fff;border-color:#5b21b6;box-shadow:0 2px 8px rgba(109,40,217,.3);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      PDF HD (Ini)
+    </button>
+    <button class="btn" id="btnSavePdfAll" onclick="doSavePdfAll(false)" style="background:#db2777;color:#fff;border-color:#be185d;box-shadow:0 2px 8px rgba(219,39,119,.25);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      PDF (Terpilih)
+    </button>
+    <button class="btn" id="btnSavePdfAllHD" onclick="doSavePdfAll(true)" style="background:#be185d;color:#fff;border-color:#9d174d;box-shadow:0 2px 8px rgba(190,24,93,.3);">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+      PDF HD (Terpilih)
+    </button>
+    <div id="pdfProgressWrap">
+      <svg id="pdfSpinner" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#b45309" stroke-width="2.5"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+      <div id="pdfProgressTrack">
+        <div id="pdfProgressTop">
+          <span id="pdfProgressLabel">Menyiapkan PDF...</span>
+          <span id="pdfProgressPct">0%</span>
+        </div>
+        <div id="pdfProgressBarBg"><div id="pdfProgressBar"></div></div>
+      </div>
+      <button id="btnCancelPdf" onclick="cancelPdfSave()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        Batal
+      </button>
+    </div>
+    <button class="btn" id="btnSave" onclick="doSave()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+      Simpan
+    </button>
+    <button class="btn btn-ghost btn-hide" id="btnSaveAll" onclick="doSaveAll()">Simpan Semua</button>
+    <button class="btn btn-ghost btn-hide" id="btnBackup">Backup</button>
+    <button class="btn btn-ghost btn-hide" id="btnRestore">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/><path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/></svg>
+      Upload Backup
+    </button>
+    <input type="file" id="restoreFile" accept="application/json">
+    <button class="btn btn-danger btn-sm" id="btnClear" onclick="doClearAll()">Hapus Semua</button>
+</header>
 
-  <div id="app">
-    <h1>Aplikasi Keuangan Sederhana</h1>
+<div class="app">
+  <div class="layout">
 
-    <form id="form-transaksi" onsubmit="simpanTransaksi(event)">
-      <label>Tanggal</label>
-      <input type="date" id="tanggal" required>
+    
+    <aside class="sidebar">
 
-      <label>Jenis</label>
-      <select id="jenis" required>
-        <option value="masuk">Pemasukan</option>
-        <option value="keluar">Pengeluaran</option>
-      </select>
-
-      <label>Tipe Transaksi</label>
-      <select id="tipeTransaksi" required>
-        <option value="cash">Cash</option>
-        <option value="bank">Bank</option>
-      </select>
-
-      <div id="wrap-unit" style="margin-top:8px; display:none;">
-        <label>Unit (opsional)</label>
-        <select id="unitTransaksi">
-          <option value="">— Tidak pakai INDUK / USP —</option>
-          <option value="INDUK">INDUK</option>
-          <option value="USP">USP</option>
-          <option value="TEKSAR">TEKSAR</option>
-        </select>
+      
+      <div class="acc" id="acc-logo">
+        <div class="acc-head" onclick="accToggle('logo')">
+          <div class="acc-icon ic-blue">🖼</div>
+          <div class="acc-meta">
+            <div class="acc-title">Logo &amp; Tanda Tangan</div>
+            <div class="acc-sub">Upload &amp; atur posisi TTD</div>
+          </div>
+          <div class="acc-arrow" id="arr-logo">▼</div>
+        </div>
+        <div class="acc-body" id="body-logo">
+          <div class="acc-inner">
+            <div class="acc-inner-pad">
+              <div class="fg">
+                <label class="fl">Upload Logo (SVG / PNG / JPG)</label>
+                <label class="file-btn" for="logoFile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+                  <span id="logoFileName">Pilih file logo…</span>
+                </label>
+                <input type="file" id="logoFile" accept="image/svg+xml,image/png,image/jpeg,image/*"/>
+                <span id="logoStatus" class="badge badge-no" style="margin-top:6px">⬜ Belum ada logo</span>
+                <div style="margin-top:8px">
+                  <button class="btn btn-danger btn-sm" id="btnLogoClear" type="button">Hapus Logo</button>
+                </div>
+              </div>
+              <hr class="hr">
+              <div class="fg">
+                <label class="fl">Upload Tanda Tangan (SVG / PNG / JPG)</label>
+                <label class="file-btn" for="signFile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>
+                  <span id="signFileName">Pilih file TTD…</span>
+                </label>
+                <input type="file" id="signFile" accept="image/svg+xml,image/png,image/jpeg,image/*"/>
+                <span id="signStatus" class="badge badge-warn" style="margin-top:6px">⚙ Menggunakan file default</span>
+                <div style="margin-top:8px; display:flex; gap:6px; flex-wrap:wrap">
+                  <button class="btn btn-ghost btn-sm" id="btnSignClear" type="button">Reset ke default</button>
+                  <button class="btn btn-danger btn-sm" id="btnSignDelete" type="button">Hapus Tanda Tangan</button>
+                </div>
+              </div>
+              <hr class="hr">
+              <span class="fl" style="margin-bottom:10px">Atur Posisi Tanda Tangan</span>
+              <div class="frow">
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Skala (%)</label>
+                  <input id="signScale" type="number" step="1" value="115"/>
+                </div>
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Naik/Turun (mm)</label>
+                  <input id="signTop" type="number" step="0.1" value="196"/>
+                </div>
+              </div>
+              <div class="frow">
+                <div class="fg">
+                  <label class="fl">Kiri/Kanan (mm)</label>
+                  <input id="signLeft" type="number" step="0.1" value="132"/>
+                </div>
+                <div class="fg">
+                  <label class="fl">Tinggi area (mm)</label>
+                  <input id="signH" type="number" step="0.1" value="26"/>
+                </div>
+              </div>
+              <div class="fg">
+                <label class="fl">Lebar area (mm)</label>
+                <input id="signW" type="number" step="0.1" value="78"/>
+              </div>
+              <p class="hint">TTD di-overlay di atas dokumen, tidak menggeser teks.</p>
+            </div>
+          </div>
+        </div>
       </div>
 
-      <label>Keterangan</label>
-      <div class="autocomplete-wrap">
-        <textarea id="keterangan" rows="3"></textarea>
-        <div id="keterangan-suggestions"></div>
+      
+      <div class="acc" id="acc-excel">
+        <div class="acc-head" onclick="accToggle('excel')">
+          <div class="acc-icon ic-green">📊</div>
+          <div class="acc-meta">
+            <div class="acc-title">Data Kendaraan</div>
+            <div class="acc-sub">Import Excel &amp; pilih nomor kendaraan</div>
+          </div>
+          <div class="acc-arrow open" id="arr-excel">▼</div>
+        </div>
+        <div class="acc-body open" id="body-excel">
+          <div class="acc-inner">
+            <div class="acc-inner-pad">
+              <div class="fg">
+                <label class="fl">Upload Excel Data Kendaraan</label>
+                <label class="file-btn" for="excelFile">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  <span>Pilih file .xlsx / .xls…</span>
+                </label>
+                <input type="file" id="excelFile" accept=".xlsx,.xls" onchange="handleExcelUpload(this)"/>
+                <span id="excelStatus" class="badge badge-no">⬜ Belum ada Excel</span>
+              </div>
+              <div class="fg">
+                <label class="fl">Pilih No Kendaraan</label>
+                <select id="pickNo" onchange="applyLookup()" disabled>
+                  <option value="">Upload Excel dulu…</option>
+                </select>
+              </div>
+              <div class="chips-box">
+                <div class="chips-head">
+                  <span class="chips-lbl">Centang untuk Print Terpilih</span>
+                  <label class="chips-all">
+                    <input type="checkbox" id="chkAll"> Pilih Semua
+                  </label>
+                </div>
+                <div id="chipsCollapseWrap" style="overflow:hidden;max-height:96px;transition:max-height 0.3s ease;">
+                  <div class="chips" id="printPick">
+                    <span style="font-size:12px;color:var(--t2)">Upload Excel dulu agar daftar No muncul.</span>
+                  </div>
+                </div>
+                <button id="btnToggleChips" type="button" onclick="toggleChips(this)">▼ Tampilkan semua</button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="keterangan-hint">Ketik awalan yang sama dengan keterangan sebelumnya, lalu pilih saran yang muncul.</div>
 
-      <label>Jumlah (Rp)</label>
-      <input type="number" id="jumlah" min="1" required>
+      
+      <div class="acc" id="acc-form">
+        <div class="acc-head" onclick="accToggle('form')">
+          <div class="acc-icon ic-amber">📝</div>
+          <div class="acc-meta">
+            <div class="acc-title">Formulir Dokumen</div>
+            <div class="acc-sub">Data penyerah, penerima &amp; keterangan</div>
+          </div>
+          <div class="acc-arrow open" id="arr-form">▼</div>
+        </div>
+        <div class="acc-body open" id="body-form">
+          <div class="acc-inner">
+            <div class="acc-inner-pad">
+              <div class="fg">
+                <label class="fl">Tanggal <span class="req">*</span></label>
+                <input type="date" id="tgl"/>
+              </div>
 
-      <label>Nama Penerima</label>
-      <input type="text" id="footerRight" placeholder="Nama / TRANSFER">
+              <span class="section-label sl-blue">Pihak Penyerah</span>
+              <div class="frow">
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Nama Penyerah</label>
+                  <input id="pemberiNama" value="Rumpun Joko Pamungkas, SH."/>
+                </div>
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Jabatan Penyerah</label>
+                  <input id="pemberiJabatan" value="Ketua II"/>
+                </div>
+              </div>
+              <div class="fg">
+                <label class="fl">Perusahaan Penyerah</label>
+                <input id="pemberiPerusahaan" value="Koperasi Konsumen Pegawai Pos Indonesia Jakarta Pusat"/>
+              </div>
+              <div class="fg">
+                <label class="fl">Alamat Kantor Penyerah</label>
+                <input id="pemberiAlamat" value="Jl. Pos No. 2 Pasar Baru Sawah Besar Jakarta Pusat 10710"/>
+              </div>
 
-      <label>Jabatan Penerima</label>
-      <input type="text" id="jabatanRight" placeholder="Jabatan Penerima">
+              <span class="section-label sl-green">Pihak Penerima</span>
+              <div class="frow">
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Nama Penerima</label>
+                  <input id="penerimaNama" value=""/>
+                </div>
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Jabatan Penerima</label>
+                  <input id="penerimaJabatan" value=""/>
+                </div>
+              </div>
+              <div class="fg">
+                <label class="fl">Perusahaan Penerima</label>
+                <input id="penerimaPerusahaan" value="PT. Cannonnex Indonesia"/>
+              </div>
+              <div class="fg">
+                <label class="fl">Alamat Kantor Penerima</label>
+                <input id="penerimaAlamat" value="Jl. Raya Condet No. 2, RT.05/03 Balekambang Kramat Jati Jakarta Timur 13530"/>
+              </div>
 
-      <label>Rekening Penerima (opsional)</label>
-      <input type="text" id="rekPenerima" placeholder="Rek. tujuan transfer">
+              <span class="section-label sl-muted">Data Kendaraan (Otomatis dari Excel)</span>
+              <div class="frow">
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">No Polisi</label>
+                  <input id="noPol" readonly/>
+                </div>
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Merk/Type</label>
+                  <input id="merkType" readonly/>
+                </div>
+              </div>
+              <div class="frow">
+                <div class="fg">
+                  <label class="fl">Warna</label>
+                  <input id="warna" readonly/>
+                </div>
+                <div class="fg">
+                  <label class="fl">No Rangka</label>
+                  <input id="noRangka" readonly/>
+                </div>
+              </div>
+              <div class="frow">
+                <div class="fg">
+                  <label class="fl">No Mesin</label>
+                  <input id="noMesin" readonly/>
+                </div>
+                <div class="fg">
+                  <label class="fl">Kantor Tujuan</label>
+                  <input id="tujuan" readonly/>
+                </div>
+              </div>
+              <div class="fg">
+                <label class="fl">Alamat Tujuan (untuk link)</label>
+                <input id="alamatTujuan" readonly/>
+              </div>
+              <div class="frow">
+                <div class="fg">
+                  <label class="fl">Nama PIC</label>
+                  <input id="pic" readonly/>
+                </div>
+                <div class="fg">
+                  <label class="fl">No HP</label>
+                  <input id="hp" readonly/>
+                </div>
+              </div>
+              <div class="fg">
+                <label class="fl">Keterangan</label>
+                <textarea id="keterangan">Bahwa kendaraan dimaksud dalam kondisi layak jalan dan sesuai kesepakatan bersama.</textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-      <button type="submit" id="btn-submit" style="margin-top:10px;">Simpan Transaksi</button>
-      <button type="button" id="btn-batal-edit" style="margin-top:10px; display:none;" onclick="batalEdit()">Batal Edit</button>
-    </form>
+      
+      <div class="acc" id="acc-footer">
+        <div class="acc-head" onclick="accToggle('footer')">
+          <div class="acc-icon ic-slate">⚙️</div>
+          <div class="acc-meta">
+            <div class="acc-title">Footer &amp; Micro-Adjust</div>
+            <div class="acc-sub">Teks footer &amp; koreksi posisi printer</div>
+          </div>
+          <div class="acc-arrow" id="arr-footer">▼</div>
+        </div>
+        <div class="acc-body" id="body-footer">
+          <div class="acc-inner">
+            <div class="acc-inner-pad">
+              <div class="fg">
+                <label class="fl">Footer Baris 1</label>
+                <input id="footer1" value="KOPERASI KONSUMEN PEGAWAI POS INDONESIA JAKARTA PUSAT"/>
+              </div>
+              <div class="fg">
+                <label class="fl">Footer Baris 2</label>
+                <input id="footer2" value="JL. POS NO. 2 PASAR BARU SAWAH BESAR JAKARTA PUSAT 10710"/>
+              </div>
+              <div class="fg">
+                <label class="fl">Footer Baris 3</label>
+                <input id="footer3" value="TELP : 021-22345911 WEB :www.kopposindo.co.id email : kopposindo@kopposindo.co.id"/>
+              </div>
+              <hr class="hr">
+              <span class="fl">Micro-Adjust — koreksi jika printer bergeser</span>
+              <div class="frow" style="margin-top:8px">
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Shift X (mm)</label>
+                  <input id="shiftX" type="number" step="0.1" value="0"/>
+                </div>
+                <div class="fg" style="margin-top:0">
+                  <label class="fl">Shift Y (mm)</label>
+                  <input id="shiftY" type="number" step="0.1" value="0"/>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
-    <div class="ringkasan">
-      <p>Total Pemasukan: <strong id="total-masuk">Rp 0</strong></p>
-      <p>Total Pengeluaran: <strong id="total-keluar">Rp 0</strong></p>
-      <p>Saldo: <strong id="saldo">Rp 0</strong></p>
+      
+      <div class="acc" id="acc-saved">
+        <div class="acc-head" onclick="accToggle('saved')">
+          <div class="acc-icon ic-blue">📋</div>
+          <div class="acc-meta">
+            <div class="acc-title">Dokumen Tersimpan</div>
+            <div class="acc-sub">Riwayat dokumen yang telah disimpan</div>
+          </div>
+          <div class="acc-arrow open" id="arr-saved">▼</div>
+        </div>
+        <div class="acc-body open" id="body-saved">
+          <div class="acc-inner">
+            <div class="acc-inner-pad" style="padding-top:8px">
+              <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">
+                <button class="btn btn-pri btn-sm" id="btnPrintAllSaved" onclick="doPrintAllSaved()" title="Print semua dokumen tersimpan">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+                  Print Semua
+                </button>
+                <button class="btn btn-sm" id="btnLoadAllSaved" onclick="doLoadAllSaved()" title="Muat semua dokumen tersimpan ke antrian preview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 15v4c0 1.1.9 2 2 2h14a2 2 0 0 0 2-2v-4"/><polyline points="17 9 12 4 7 9"/><line x1="12" y1="4" x2="12" y2="15"/></svg>
+                  Muat Semua
+                </button>
+              </div>
+              <div style="overflow-x:auto">
+                <table class="tbl" style="min-width:340px">
+                  <thead>
+                    <tr><th>Tanggal</th><th>No Polisi</th><th>Tujuan</th><th>Aksi</th></tr>
+                  </thead>
+                  <tbody id="savedBody">
+                    <tr><td class="tbl-empty" colspan="4">Belum ada dokumen tersimpan.</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </aside>
+
+    
+    <div>
+      <div class="preview-wrap">
+        <div class="preview-bar printHide">
+          <div class="preview-bar-left">
+            <span class="live-dot"></span>
+            <span class="preview-bar-label">Preview A4 — Live Update</span>
+          </div>
+          <div class="nav-wrap">
+            <button class="nav-btn" id="btnPrev" title="Dokumen sebelumnya" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <div class="nav-info">
+              <span class="nav-counter" id="navCounter">—</span>
+              <span class="nav-nopol" id="navNopol">Pilih kendaraan</span>
+            </div>
+            <button class="nav-btn" id="btnNext" title="Dokumen berikutnya" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="paper-scroll">
+<div class="paper" id="paper">
+            <div class="frame"></div>
+            <div class="logoBox" id="logoWrap"></div>
+            <div class="signPengurus" id="signPengurusWrap"></div>
+
+            <div class="t center title" style="left:0; right:0; top:29mm;">BERITA ACARA SERAH TERIMA KENDARAAN</div>
+
+            <div class="t bold" style="left:14mm; top:42mm;">Yang bertanda tangan di bawah ini :</div>
+            <div class="t" style="left:14mm; top:48mm;">Nama</div><div class="t" style="left:34mm; top:48mm;">:</div><div class="t" id="pNamaVal" style="left:37mm; top:48mm; width:75mm;"></div>
+            <div class="t" style="left:14mm; top:53mm;">Jabatan</div><div class="t" style="left:34mm; top:53mm;">:</div><div class="t" id="pJabVal" style="left:37mm; top:53mm; width:75mm;"></div>
+            <div class="t" style="left:14mm; top:58mm;">Perusahaan</div><div class="t" style="left:34mm; top:58mm;">:</div><div class="t" id="pPerVal" style="left:37mm; top:58mm; width:75mm;"></div>
+            <div class="t" style="left:14mm; top:65mm;">Alamat Kantor</div><div class="t" style="left:34mm; top:65mm;">:</div><div class="t" id="pAlmVal" style="left:37mm; top:65mm; width:75mm;"></div>
+
+            <div class="t bold" style="left:118mm; top:42mm;">Dengan ini menyerahkan kepada :</div>
+            <div class="t" style="left:118mm; top:48mm;">Nama</div><div class="t" style="left:140mm; top:48mm;">:</div><div class="t" id="rNamaVal" style="left:143mm; top:48mm; width:55mm;"></div>
+            <div class="t" style="left:118mm; top:53mm;">Jabatan</div><div class="t" style="left:140mm; top:53mm;">:</div><div class="t" id="rJabVal" style="left:143mm; top:53mm; width:55mm;"></div>
+            <div class="t" style="left:118mm; top:58mm;">Perusahaan</div><div class="t" style="left:140mm; top:58mm;">:</div><div class="t" id="rPerVal" style="left:143mm; top:58mm; width:55mm;"></div>
+            <div class="t" style="left:118mm; top:65mm;">Alamat Kantor</div><div class="t" style="left:140mm; top:65mm;">:</div><div class="t" id="rAlmVal" style="left:143mm; top:65mm; width:55mm;"></div>
+
+            <div class="t bold" style="left:14mm; top:76mm;">Data kendaraan sebagai berikut :</div>
+
+            <div class="t" style="left:22mm; top:82mm;">1 )</div><div class="t" style="left:30mm; top:82mm;">No. Polisi</div><div class="t" style="left:52mm; top:82mm;">:</div><div class="t" id="v1" style="left:55mm; top:82mm; width:70mm;"></div>
+            <div class="t" style="left:22mm; top:87mm;">2 )</div><div class="t" style="left:30mm; top:87mm;">Merk/type</div><div class="t" style="left:52mm; top:87mm;">:</div><div class="t" id="v2" style="left:55mm; top:87mm; width:70mm;"></div>
+            <div class="t" style="left:22mm; top:92mm;">3 )</div><div class="t" style="left:30mm; top:92mm;">Warna</div><div class="t" style="left:52mm; top:92mm;">:</div><div class="t" id="v3" style="left:55mm; top:92mm; width:70mm;"></div>
+            <div class="t" style="left:22mm; top:97mm;">4 )</div><div class="t" style="left:30mm; top:97mm;">No. Rangka</div><div class="t" style="left:52mm; top:97mm;">:</div><div class="t" id="v4" style="left:55mm; top:97mm; width:70mm;"></div>
+            <div class="t" style="left:22mm; top:102mm;">5 )</div><div class="t" style="left:30mm; top:102mm;">No. Mesin</div><div class="t" style="left:52mm; top:102mm;">:</div><div class="t" id="v5" style="left:55mm; top:102mm; width:70mm;"></div>
+
+            <div class="t" style="left:22mm; top:107mm;">6 )</div>
+            <div class="t" style="left:30mm; top:107mm;">Kantor Tujuan</div>
+            <div class="t" style="left:52mm; top:107mm;">:</div>
+            <div class="t" id="v6" style="left:55mm; top:107mm; width:62mm;"></div>
+            <div class="t" id="v6addr" style="left:55mm; top:112mm; width:62mm; font-size:11.2px; line-height:1.12;"></div>
+
+            <div class="t" style="left:118mm; top:106mm;">Nama</div><div class="t" style="left:140mm; top:106mm;">:</div><div class="t" id="picVal" style="left:143mm; top:106mm; width:55mm;"></div>
+            <div class="t" style="left:118mm; top:111mm;">HP</div><div class="t" style="left:140mm; top:111mm;">:</div><div class="t" id="hpVal" style="left:143mm; top:111mm; width:55mm;"></div>
+
+            <div class="t bold" style="left:14mm; top:122mm;">Kelengkapan Kendaraan berupa :</div>
+
+            <div class="t" style="left:22mm; top:128mm;">1</div><div class="t" style="left:28mm; top:128mm; width:60mm;">STNK</div><div class="t" style="left:92mm; top:128mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:133.5mm;">2</div><div class="t" style="left:28mm; top:133.5mm; width:60mm;">Kunci Kontak 2 (dua) buah</div><div class="t" style="left:92mm; top:133.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:139mm;">3</div><div class="t" style="left:28mm; top:139mm; width:60mm;">Tool Set</div><div class="t" style="left:92mm; top:139mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:144.5mm;">4</div><div class="t" style="left:28mm; top:144.5mm; width:60mm;">Dongkrak</div><div class="t" style="left:92mm; top:144.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:150mm;">5</div><div class="t" style="left:28mm; top:150mm; width:60mm;">Ban Serep + Engkol</div><div class="t" style="left:92mm; top:150mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:155.5mm;">6</div><div class="t" style="left:28mm; top:155.5mm; width:60mm;">Dinamo</div><div class="t" style="left:92mm; top:155.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:161mm;">7</div><div class="t" style="left:28mm; top:161mm; width:60mm;">AC</div><div class="t" style="left:92mm; top:161mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:22mm; top:166.5mm;">8</div><div class="t" style="left:28mm; top:166.5mm; width:60mm;">Head Unit/Audio</div><div class="t" style="left:92mm; top:166.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:118mm; top:128mm;">9</div><div class="t" style="left:124mm; top:128mm; width:55mm;">Buku Service</div><div class="t" style="left:182mm; top:128mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:118mm; top:133.5mm;">10</div><div class="t" style="left:124mm; top:133.5mm; width:55mm;">Light Bar/USB</div><div class="t" style="left:182mm; top:133.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:118mm; top:139mm;">11</div><div class="t" style="left:124mm; top:139mm; width:55mm;">Kunci + K</div><div class="t" style="left:182mm; top:139mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:118mm; top:144.5mm;">12</div><div class="t" style="left:124mm; top:144.5mm; width:55mm;">APAR + Pengaman</div><div class="t" style="left:182mm; top:144.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:118mm; top:150mm;">13</div><div class="t" style="left:124mm; top:150mm; width:55mm;">Spion kiri</div><div class="t" style="left:182mm; top:150mm;"><span class="box-wrap"><span class="box"></span></span></div>
+            <div class="t" style="left:118mm; top:155.5mm;">14</div><div class="t" style="left:124mm; top:155.5mm; width:55mm;">Lain-lain</div><div class="t" style="left:182mm; top:155.5mm;"><span class="box-wrap"><span class="box"></span></span></div>
+
+            <div class="t" id="ketVal" style="left:14mm; top:174.5mm; width:180mm;"></div>
+            <div class="t" style="left:14mm; top:181.0mm; width:180mm;">Demikian Berita Serah Terima Kendaraan ini dibuat dan untuk dipergunakan sebagaimana mestinya.</div>
+
+            <div class="t center" style="left:24mm; top:192mm; width:70mm;">Diterima oleh :</div>
+            <div class="t center" style="left:24mm; top:197mm; width:70mm;" id="rPerValKiri"></div>
+            <div class="t center bold" style="left:24mm; top:224.6mm; width:70mm;" id="rNamaValKiri"></div>
+            <div class="t" style="left:24mm; top:221mm; width:70mm;"><div style="width:55mm; margin:0 auto; border-top:1px solid var(--ink);"></div></div>
+            <div class="t center" style="left:24mm; top:229.3mm; width:70mm; font-size:10.7px;" id="rJabValKiri"></div>
+
+            <div class="t center" id="tglIndo" style="left:132mm; top:188mm; width:70mm;"></div>
+            <div class="t center" style="left:132mm; top:192mm; width:70mm;">Diserahkan oleh :</div>
+            <div class="t center" style="left:132mm; top:197mm; width:70mm;">Pengurus Kopposindo</div>
+            <div class="t center bold" style="left:132mm; top:224.6mm; width:70mm;">Rumpun Joko Pamungkas, SH.</div>
+            <div class="t" style="left:132mm; top:221mm; width:70mm;"><div style="width:55mm; margin:0 auto; border-top:1px solid var(--ink);"></div></div>
+            <div class="t center" style="left:132mm; top:229.3mm; width:70mm; font-size:10.7px;">Ketua II</div>
+
+            <div class="t center" style="left:80mm; top:232mm; width:70mm;">Diterima oleh :</div>
+            <div class="t center" id="kcuLinkWrap" style="left:80mm; top:237mm; width:70mm;"></div>
+            <div class="t" style="left:92mm; top:264.5mm; width:50mm; border-top:1px solid var(--ink);"></div>
+            <div class="t center bold" style="left:80mm; top:260mm; width:70mm;" id="picValKCU"></div>
+
+            <div class="note" id="noteText">Note : Dibubuhkan Tanda Tangan, Nama Jelas, Stempel dan Tanggal terima</div>
+
+            <div class="footerLine"></div>
+            <div class="footer">
+              <div class="bold" id="f1"></div>
+              <div id="f2"></div>
+              <div id="f3"></div>
+            </div>
+          </div>
+        </div>
+          </div>
+        </div>
+
+      </div>
     </div>
 
-    <div id="search-box">
-      <label>Cari Transaksi (tanggal, keterangan, jumlah, jenis, tipe, unit)</label>
-      <input type="text" id="search-input" placeholder="Ketik kata kunci, contoh: 30/11/2025, bank, makan, 20000">
-    </div>
-
-    <h2>Daftar Transaksi</h2>
-    <button type="button" onclick="cetakBanyak('1')">Cetak yang Dipilih (1 per Halaman)</button>
-    <button type="button" onclick="cetakBanyak('3')">Cetak yang Dipilih (3 per Halaman)</button>
-
-    <div id="wrap-bms" style="margin-top:10px;">
-      <strong>Transaksi PT. Bersama Menuju Sejahtera</strong>
-      <table>
-        <thead>
-          <tr>
-            <th><input type="checkbox" id="checkAll" onclick="toggleAll(this)"></th>
-            <th>Tanggal</th>
-            <th>Jenis</th>
-            <th>Tipe</th>
-            <th>Keterangan</th>
-            <th>Jumlah</th>
-            <th>Aksi</th>
-          </tr>
-        </thead>
-        <tbody id="tabel-body-bms"></tbody>
-      </table>
-    </div>
-
-    <div id="wrap-kopp" style="margin-top:20px;">
-      <strong>Transaksi Koperasi Konsumen Pegawai Pos Indonesia</strong>
-      <table>
-        <thead>
-          <tr>
-            <th></th>
-            <th>Tanggal</th>
-            <th>Jenis</th>
-            <th>Tipe</th>
-            <th>Keterangan</th>
-            <th>Jumlah</th>
-            <th>Aksi</th>
-          </tr>
-        </thead>
-        <tbody id="tabel-body-koppos"></tbody>
-      </table>
-    </div>
   </div>
 
-  <div class="app-copyright">
-    <span class="icon">©️</span>ANA
+  
+  <div class="credit printHide">
+    Dibuat oleh <span>NA</span> · Kopposindo © 2025
   </div>
+
 </div>
 
-<div id="settings-page" class="hidden">
-  <button type="button" onclick="backToHome()">← Kembali ke Home</button>
-  <h2 style="margin-top:10px;">Pengaturan</h2>
-
-  <h3>Mode Kuitansi</h3>
-  <select id="modeKuitansi">
-    <option value="bms">PT. Bersama Menuju Sejahtera</option>
-    <option value="kopposindo">Koperasi Konsumen Pegawai Pos Indonesia</option>
-  </select>
-
-  <h3 style="margin-top:15px;">Logo Kuitansi</h3>
-  <label>
-    <input type="checkbox" id="useLogo" style="width:auto;">
-    Gunakan logo pada kuitansi
-  </label>
-  <input type="file" id="logoInput" accept="image/*" style="display:none;">
-  <button type="button" onclick="document.getElementById('logoInput').click()">Pilih / Ganti Logo</button>
-  <button type="button" onclick="hapusLogo()">Hapus Logo</button>
-  <div id="logoPreview"></div>
-
-  <h3>Pilih Direktur SDM / Wakil Direktur Utama (Mode BMS)</h3>
-  <select id="dirSDMSelect">
-    <option value="Jamaludin P. Rachman, S.H.|Direktur SDM">Jamaludin P. Rachman, S.H. – Direktur SDM</option>
-    <option value="Kusmana, S.E.|Wakil Direktur Utama">Kusmana, S.E. – Wakil Direktur Utama</option>
-  </select>
-
-  <h3>Pilih Direktur Umum / Pemasaran (Mode BMS)</h3>
-  <select id="dirUmumSelect">
-    <option value="Djajat Sudrajat|Direktur Umum">Djajat Sudrajat – Direktur Umum</option>
-    <option value="Rumpun J. Pamungkas, S.H.|Direktur Pemasaran">Rumpun J. Pamungkas, S.H. – Direktur Pemasaran</option>
-    <option value="|">Tidak menggunakan (kosong)</option>
-  </select>
-
-  <h3 style="margin-top:15px;">Man. SDM / Man. Teksar (Mode BMS)</h3>
-  <select id="bmsManSDMSelect">
-    <option value="Jaelani S.Pd.I|Man. SDM">Jaelani S.Pd.I – Man. SDM</option>
-    <option value="Daryanto|Man. Teksar">Daryanto – Man. Teksar</option>
-    <option value="|">Tidak menggunakan (kosong)</option>
-  </select>
-
-  <h3 style="margin-top:15px;">Penandatangan Ketua (Koperasi)</h3>
-  <select id="kopKetuaSelect">
-    <option value="Jamaludin P. Rachman, S.H.|Ketua I">Jamaludin P. Rachman, S.H. – Ketua I</option>
-    <option value="Rumpun J. Pamungkas, S.H.|Ketua II">Rumpun J. Pamungkas, S.H. – Ketua II</option>
-    <option value="|">Tidak menggunakan (kosong)</option>
-  </select>
-
-
-  <h3>Penandatangan Man. SDM / Man. Teksar (Koperasi)</h3>
-  <select id="kopManSDMSelect">
-    <option value="Jaelani S.Pd.I|Man. SDM">Jaelani S.Pd.I – Man. SDM</option>
-    <option value="Daryanto|Man. Teksar">Daryanto – Man. Teksar</option>
-    <option value="|">Tidak menggunakan (kosong)</option>
-  </select>
-
-  <h3 style="margin-top:15px;">Backup & Restore Data</h3>
-  <button type="button" onclick="backupData()">Backup ke File</button>
-  <br><br>
-  <input type="file" id="restoreInput" accept="application/json" style="display:none;">
-  <button type="button" onclick="document.getElementById('restoreInput').click()">Pulihkan dari File Backup</button>
-  <small><br>Gunakan fitur backup ini untuk mengantisipasi jika browser / sistem error.</small>
-
-  <h3 style="margin-top:15px;">Reset Data</h3>
-  <button type="button" onclick="resetData()">Reset Semua Transaksi & Pengaturan</button>
-  <small><br>Setelah reset, Anda masih bisa mengembalikan data dari file backup yang sudah di-export.</small>
-</div>
-
-<div id="kuitansi-wrapper">
-  <div id="kuitansi-box"></div>
-</div>
+<div class="toast-wrap" id="toastWrap"></div>
 
 <script>
-function terbilang(n){
-  var s=["","Satu","Dua","Tiga","Empat","Lima","Enam","Tujuh","Delapan","Sembilan","Sepuluh","Sebelas"];
-  n=Math.floor(n || 0);
-  if(n<12)return s[n];
-  if(n<20)return terbilang(n-10)+" Belas";
-  if(n<100)return terbilang(Math.floor(n/10))+" Puluh "+terbilang(n%10);
-  if(n<200)return "Seratus "+terbilang(n-100);
-  if(n<1000)return terbilang(Math.floor(n/100))+" Ratus "+terbilang(n%100);
-  if(n<2000)return "Seribu "+terbilang(n-1000);
-  if(n<1000000)return terbilang(Math.floor(n/1000))+" Ribu "+terbilang(n%1000);
-  if(n<1000000000)return terbilang(Math.floor(n/1000000))+" Juta "+terbilang(n%1000000);
-  return "";
-}
 
-var transaksi = JSON.parse(localStorage.getItem("transaksi") || "[]");
-var settings  = JSON.parse(localStorage.getItem("settings") || "{}");
-if(!settings) settings = {};
-if(!settings.modeKuitansi) settings.modeKuitansi = "bms";
-
-if(settings.useLogoBms === undefined && settings.useLogoKopp === undefined){
-  var oldUse = (settings.useLogo === undefined) ? false : !!settings.useLogo;
-  settings.useLogoBms  = oldUse;
-  settings.useLogoKopp = oldUse;
-}
-
-function getUseLogoByMode(mode){
-  return (mode === "kopposindo") ? !!settings.useLogoKopp : !!settings.useLogoBms;
-}
-function setUseLogoByMode(mode, val){
-  if(mode === "kopposindo") settings.useLogoKopp = !!val;
-  else settings.useLogoBms = !!val;
-}
-
-if(!settings.direksi){
-  settings.direksi = {
-    dirSDM: "Jamaludin P. Rachman, S.H.|Direktur SDM",
-    dirUmum: "Djajat Sudrajat|Direktur Umum"
-  };
-}
-
-if(settings.bmsManSDM === undefined){
-  settings.bmsManSDM = "Jaelani S.Pd.I|Man. SDM";
-}
-
-if(!settings.kopposTTD){
-  settings.kopposTTD = {
-    ketua: "Jamaludin P. Rachman, S.H.|Ketua I",
-    manSDM: "Jaelani S.Pd.I|Man. SDM"
-  };
-}
-if(settings.kopposTTD.ketua === undefined){
-  settings.kopposTTD.ketua = "Jamaludin P. Rachman, S.H.|Ketua I";
-}
-if(settings.kopposTTD.manSDM === undefined){
-  settings.kopposTTD.manSDM = "Jaelani S.Pd.I|Man. SDM";
-}
-
-if(settings.logoBmsDataUrl === undefined && settings.logoDataUrl){
-  settings.logoBmsDataUrl = settings.logoDataUrl;
-}
-if(settings.logoKoppDataUrl === undefined && settings.logoDataUrlKopp){
-  settings.logoKoppDataUrl = settings.logoDataUrlKopp;
-}
-
-function setToday(){
-  var input = document.getElementById("tanggal");
-  if(!input) return;
-  if(input.value) return;
-  var t = new Date();
-  var d = String(t.getDate()).padStart(2,"0");
-  var m = String(t.getMonth()+1).padStart(2,"0");
-  var y = t.getFullYear();
-  input.value = y+"-"+m+"-"+d;
-}
-
-function parseTanggal(str){
-  if(!str) return new Date(0);
-  if(String(str).indexOf("-") >= 0){
-    var p = String(str).split("-");
-    return new Date(parseInt(p[0],10), parseInt(p[1],10)-1, parseInt(p[2],10));
-  }else{
-    var p2 = String(str).split("/");
-    return new Date(parseInt(p2[2],10), parseInt(p2[1],10)-1, parseInt(p2[0],10));
-  }
-}
-
-function formatTanggalPendek(str){
-  if(!str) return "";
-  if(String(str).indexOf("/") >= 0) return str;
-  var p = String(str).split("-");
-  return p[2]+"/"+p[1]+"/"+p[0];
-}
-
-function formatTanggalPanjang(str){
-  var months=["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
-  if(!str) return "";
-  var d,m,y;
-  if(String(str).indexOf("-") >= 0){
-    var p = String(str).split("-");
-    y=p[0]; m=parseInt(p[1],10); d=parseInt(p[2],10);
-  }else{
-    var p2 = String(str).split("/");
-    d=parseInt(p2[0],10); m=parseInt(p2[1],10); y=p2[2];
-  }
-  return d+" "+months[m-1]+" "+y;
-}
-
-function toISOFromDDMM(str){
-  if(!str || String(str).indexOf("/") < 0) return str;
-  var p = String(str).split("/");
-  return p[2]+"-"+p[1]+"-"+p[0];
-}
-
-function formatRupiah(n){
-  n = parseInt(n, 10) || 0;
-  return "Rp " + n.toLocaleString("id-ID");
-}
-function saveTransaksi(){
-  localStorage.setItem("transaksi", JSON.stringify(transaksi));
-}
-function saveSettings(){
-  localStorage.setItem("settings", JSON.stringify(settings));
-}
-function escapeHTML(str){
-  return String(str || "")
-    .replace(/&/g,"&amp;")
-    .replace(/</g,"&lt;")
-    .replace(/>/g,"&gt;")
-    .replace(/"/g,"&quot;")
-    .replace(/'/g,"&#039;");
-}
-function splitTtd(value){
-  var v = String(value || "");
-  var parts = v.split("|");
-  return {
-    nama: (parts[0] || "").trim(),
-    jabatan: (parts[1] || "").trim()
-  };
-}
-
-var filterKeyword = "";
-
-function renderTabel(){
-  var tbodyBms  = document.getElementById("tabel-body-bms");
-  var tbodyKopp = document.getElementById("tabel-body-koppos");
-  if(!tbodyBms || !tbodyKopp) return;
-
-  tbodyBms.innerHTML = "";
-  tbodyKopp.innerHTML = "";
-
-  var modeNow = settings.modeKuitansi || "bms";
-  var totalMasuk = 0, totalKeluar = 0;
-
-  transaksi.forEach(function(t){
-    var m = t.mode || "bms";
-    if(m !== modeNow) return;
-    var jml = parseInt(t.jumlah, 10) || 0;
-    if(t.jenis === "masuk") totalMasuk += jml;
-    else totalKeluar += jml;
-  });
-
-  var lowerKey = (filterKeyword || "").toLowerCase();
-  var data = transaksi.map(function(t,i){ return { idx:i, t:t }; });
-
-  if(lowerKey){
-    data = data.filter(function(row){
-      var t = row.t;
-      var tglDisplay = formatTanggalPendek(t.tanggal);
-      var textGabung = (
-        tglDisplay + " " +
-        (t.tanggal || "") + " " +
-        (t.mode || "") + " " +
-        (t.unit || "") + " " +
-        (t.jenis || "") + " " +
-        (t.tipe || "") + " " +
-        (t.keterangan || "") + " " +
-        (t.jumlah || "")
-      ).toLowerCase();
-      return textGabung.includes(lowerKey);
-    });
-  }
-
-  data.sort(function(a,b){
-    var da = parseTanggal(a.t.tanggal);
-    var db = parseTanggal(b.t.tanggal);
-    if(db - da !== 0) return db - da;
-    return b.idx - a.idx;
-  });
-
-  data.forEach(function(row){
-    var t = row.t;
-    var i = row.idx;
-    var mode = t.mode || "bms";
-    var targetBody = (mode === "kopposindo") ? tbodyKopp : tbodyBms;
-
-    var tr = document.createElement("tr");
-    tr.innerHTML = `
-      <td><input type="checkbox" class="pilihCetak" value="${i}"></td>
-      <td>${escapeHTML(formatTanggalPendek(t.tanggal))}</td>
-      <td>${t.jenis==="masuk" ? "Pemasukan" : "Pengeluaran"}</td>
-      <td>${t.tipe==="bank" ? "Bank" : "Cash"}</td>
-      <td>${escapeHTML(t.keterangan || "").replace(/\n/g,"<br>")}</td>
-      <td>${formatRupiah(t.jumlah)}</td>
-      <td>
-        <button type="button" onclick="cetakKuitansi(${i})">Cetak</button>
-        <button type="button" onclick="editTransaksi(${i})">Edit</button>
-        <button type="button" onclick="hapusTransaksi(${i})" style="margin-left:4px;">Hapus</button>
-      </td>
-    `;
-    targetBody.appendChild(tr);
-  });
-
-  document.getElementById("total-masuk").innerHTML = formatRupiah(totalMasuk);
-  document.getElementById("total-keluar").innerHTML = formatRupiah(totalKeluar);
-  document.getElementById("saldo").innerHTML = formatRupiah(totalMasuk-totalKeluar);
-
-  refreshKeteranganAutocomplete();
-}
-
-var editIndex = null;
-
-function simpanTransaksi(e){
-  e.preventDefault();
-
-  var iso = document.getElementById("tanggal").value;
-  if(!iso){
-    alert("Tanggal harus diisi");
-    return;
-  }
-
-  var unitEl = document.getElementById("unitTransaksi");
-  var modeNow = settings.modeKuitansi || "bms";
-
-  var data = {
-    tanggal: iso,
-    jenis: document.getElementById("jenis").value,
-    tipe: document.getElementById("tipeTransaksi").value,
-    unit: (modeNow === "kopposindo" && unitEl) ? (unitEl.value || "") : "",
-    keterangan: document.getElementById("keterangan").value,
-    jumlah: parseInt(document.getElementById("jumlah").value, 10),
-    footerRight: document.getElementById("footerRight").value,
-    jabatanRight: document.getElementById("jabatanRight").value,
-    rekPenerima: document.getElementById("rekPenerima").value
-  };
-
-  if(editIndex === null){
-    data.mode = modeNow;
-    transaksi.push(data);
-  }else{
-    data.mode = transaksi[editIndex].mode || modeNow;
-    if(data.mode !== "kopposindo") data.unit = "";
-    transaksi[editIndex] = data;
-  }
-
-  saveTransaksi();
-  renderTabel();
-  document.getElementById("form-transaksi").reset();
-  batalEdit();
-  setToday();
-  hideKeteranganSuggestions();
-}
-
-function editTransaksi(i){
-  var t = transaksi[i];
-  editIndex = i;
-
-  var iso = t.tanggal;
-  if(iso && String(iso).indexOf("/") >= 0){
-    iso = toISOFromDDMM(iso);
-  }
-
-  document.getElementById("tanggal").value       = iso || "";
-  document.getElementById("jenis").value         = t.jenis || "masuk";
-  document.getElementById("tipeTransaksi").value = t.tipe || "cash";
-  document.getElementById("keterangan").value    = t.keterangan || "";
-  document.getElementById("jumlah").value        = t.jumlah || "";
-  document.getElementById("footerRight").value   = t.footerRight || "";
-  document.getElementById("jabatanRight").value  = t.jabatanRight || "";
-  document.getElementById("rekPenerima").value   = t.rekPenerima || "";
-
-  var unitEl = document.getElementById("unitTransaksi");
-  if(unitEl){
-    unitEl.value = t.unit || "";
-  }
-
-  document.getElementById("btn-submit").textContent = "Update Transaksi";
-  document.getElementById("btn-batal-edit").style.display = "inline-block";
-
-  if(t.mode){
-    settings.modeKuitansi = t.mode;
-  }
-  applySettingsToUI();
-  refreshKeteranganAutocomplete();
-}
-
-function batalEdit(){
-  editIndex = null;
-  document.getElementById("btn-submit").textContent = "Simpan Transaksi";
-  document.getElementById("btn-batal-edit").style.display = "none";
-
-  var unitEl = document.getElementById("unitTransaksi");
-  if(unitEl) unitEl.value = "";
-
-  hideKeteranganSuggestions();
-  setToday();
-}
-
-function hapusTransaksi(i){
-  if(i === undefined || i === null) return;
-
-  var t = transaksi[i];
-  var info = "";
+function doSave(){
   try{
-    info = t ? (formatTanggalPendek(t.tanggal) + " - " + (t.keterangan || "") + " (" + formatRupiah(parseInt(t.jumlah,10)||0) + ")") : "";
-  }catch(e){}
-
-  if(!confirm("Yakin ingin menghapus transaksi ini?\n" + info)){
-    return;
-  }
-
-  transaksi.splice(i, 1);
-  saveTransaksi();
-
-  if(editIndex !== null){
-    if(editIndex === i){
-      batalEdit();
-      try{ document.getElementById("form-transaksi").reset(); }catch(e){}
-      setToday();
-    }else if(editIndex > i){
-      editIndex = editIndex - 1;
+    syncToPaper();
+    const doc = getDoc();
+    if(!doc.tgl){ alert("Harap isi Tanggal terlebih dahulu."); return; }
+    const arr = readSaved();
+    arr.push(doc);
+    writeSaved(arr);
+    refreshSaved();
+    const bodyS = document.getElementById("body-saved");
+    const arrS  = document.getElementById("arr-saved");
+    if(bodyS && !bodyS.classList.contains("open")){
+      bodyS.classList.add("open");
+      if(arrS) arrS.classList.add("open");
     }
+    document.getElementById("acc-saved").scrollIntoView({behavior:"smooth",block:"nearest"});
+    showToast("Dokumen tersimpan! ✓", "success");
+  }catch(e){
+    alert("Gagal menyimpan: " + e.message);
   }
-
-  renderTabel();
 }
 
-function generateKuitansiInnerHTML(t){
-  var mode = t.mode || settings.modeKuitansi || "bms";
+function doClearAll(){
+  
+  DOCS = [];
+  try{ localStorage.setItem(LS_KEY,"[]"); }catch(e){}
+  refreshSaved();
 
-  var ketText = (t.keterangan || "");
-  var ketHTML = escapeHTML(ketText)
-    .replace(/\t/g,"&nbsp;&nbsp;&nbsp;&nbsp;")
-    .replace(/ /g,"&nbsp;")
-    .replace(/\r?\n/g,"<br>");
-
-  var rekHTML = "";
-  if(t.rekPenerima && t.rekPenerima.trim() !== ""){
-    rekHTML = '<br><div class="rek-box">Rek. Penerima: ' + escapeHTML(t.rekPenerima).replace(/ /g,"&nbsp;") + '</div>';
+  const bodyS = document.getElementById("body-saved");
+  const arrS  = document.getElementById("arr-saved");
+  if(bodyS && !bodyS.classList.contains("open")){
+    bodyS.classList.add("open");
+    if(arrS) arrS.classList.add("open");
   }
 
-  var bankFlag = "";
-  if(t.tipe === "bank"){
-    bankFlag = '<span class="bank-flag" style="color:' + (t.jenis === "masuk" ? "red" : "black") + ';">A</span>';
+  const accSaved = document.getElementById("acc-saved");
+  if(accSaved) accSaved.scrollIntoView({behavior:"smooth", block:"start"});
+  showToast("Semua dokumen dihapus.", "success");
+}
+
+function doSaveAll(){
+  try{
+    if(!VEH || !VEH.length){ alert("Upload Excel dulu."); return; }
+    const picked = getSelectedNos();
+    if(!picked || !picked.length){ alert("Centang minimal 1 No kendaraan dulu."); return; }
+    const arr = readSaved();
+    const base = getDoc();
+    let added = 0;
+    for(const no of picked){
+
+      const r = VEH.find(x=>{
+        return String(x.No)===String(no) ||
+               String(x.NO)===String(no) ||
+               String(x['No '])===String(no) ||
+               String(Object.values(x)[0])===String(no);
+      });
+      if(!r) continue;
+
+      const d = {
+        ...base,
+        id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()),
+        createdAt: new Date().toISOString(),
+        No: String(no),
+        noPol:     r.noPol     || r.NOPOL     || r['No Pol']  || "",
+        merkType:  r.merkType  || r.MERKTYPE   || r['Merk']    || "",
+        warna:     r.warna     || r.WARNA      || r['Warna']   || "",
+        noRangka:  r.noRangka  || r.NORANGKA   || r['No Rangka']|| "",
+        noMesin:   r.noMesin   || r.NOMESIN    || r['No Mesin'] || "",
+        tujuan:    r.tujuan    || r.TUJUAN     || r['Tujuan']  || "",
+        alamatTujuan: r.alamat || r.ALAMAT     || r['Alamat']  || "",
+        pic:       r.pic       || r.PIC        || "",
+        hp:        r.hp        || r.HP         || ""
+      };
+      arr.push(d);
+      added++;
+    }
+    writeSaved(arr);
+    refreshSaved();
+    showToast(added + " dokumen berhasil disimpan!", "success");
+  }catch(e){
+    alert("Gagal simpan semua: " + e.message);
+  }
+}
+
+function accToggle(key) {
+  const body  = document.getElementById('body-'  + key);
+  const arrow = document.getElementById('arr-'   + key);
+  if (!body || !arrow) return;
+  const open = body.classList.toggle('open');
+  arrow.classList.toggle('open', open);
+}
+
+function showToast(msg, type) {
+  const wrap = document.getElementById('toastWrap');
+  const t = document.createElement('div');
+  t.className = 'toast' + (type ? ' toast-' + type : '');
+  t.textContent = msg;
+  wrap.appendChild(t);
+  setTimeout(() => { t.classList.add('out'); setTimeout(() => t.remove(), 220); }, 2800);
+}
+
+const LS_KEY="bastk_html_print_vFULL_auto_excel";
+const LS_LOGO="bastk_logo_dataurl";
+
+/* Default file TTD (nama file harus sama & sefolder dengan HTML) */
+const SIGN_DEFAULT_SRC="Desain-tanpa-judul-16.jpg";
+const LS_SIGN="bastk_sign_pengurus_dataurl";
+const LS_SIGN_POS="bastk_sign_pos"; // posisi & ukuran TTD
+
+let VEH=[];
+const $=id=>document.getElementById(id);
+
+let DOCS = (()=>{ try{ const d=JSON.parse(localStorage.getItem(LS_KEY)||"[]"); return Array.isArray(d)?d:[]; }catch(e){ return []; } })();
+function readSaved(){ return DOCS; }
+function writeSaved(a){ DOCS=[...a]; try{ localStorage.setItem(LS_KEY,JSON.stringify(DOCS)); }catch(e){} }
+
+function fmtDate(iso){
+  if(!iso) return "-";
+  const [y,m,d]=iso.split("-");
+  return `${d}/${m}/${y}`;
+}
+function indoDate(iso){
+  if(!iso) return "";
+  const [y,m,d]=iso.split("-");
+  const months=["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  return `${Number(d)} ${months[Number(m)-1]||""} ${y}`;
+}
+function mapsLink(addr){
+  return "https://www.google.com/maps/search/?api=1&query="+encodeURIComponent(addr||"");
+}
+function escapeHtml(s){
+  return String(s??"").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;").replaceAll("'","&#039;");
+}
+function emphasizeKC(text){
+  const safe = escapeHtml(text || "");
+  return safe.replace(/\bKC\b/gi, '<span class="bold">KC</span>');
+}
+function formatFooter3(text){
+  let s = escapeHtml(text||"");
+  s = s.replace(/www\.kopposindo\.co\.id/gi, (m)=>`<span class="footRed">${m}</span>`);
+  s = s.replace(/kopposindo@kopposindo\.co\.id/gi, (m)=>`<span class="footBlue">${m}</span>`);
+  return s;
+}
+
+function getLogo(){
+  return localStorage.getItem(LS_LOGO) || "";
+}
+function setLogo(dataUrl){
+  if(dataUrl) localStorage.setItem(LS_LOGO, dataUrl);
+  else localStorage.removeItem(LS_LOGO);
+  renderLogo();
+}
+function renderLogo(){
+  const wrap = $("logoWrap");
+  const data = getLogo();
+  wrap.innerHTML = "";
+  if(data){
+    const img = document.createElement("img");
+    img.className="logoImg";
+    img.src = data;
+    img.alt = "Logo";
+    wrap.appendChild(img);
+    $("logoStatus").textContent = "✅ Logo tersimpan (akan ikut saat print).";
+  }else{
+    const t = document.createElement("div");
+    t.className = "t center";
+    t.style.position = "static";
+    t.style.fontSize = "10.5px";
+    t.textContent = "(LOGO)";
+    wrap.appendChild(t);
+    $("logoStatus").textContent = "Belum ada logo.";
+  }
+}
+
+(function(){
+  const input = $("logoFile");
+  if(!input) return;
+
+  function readFileAsDataURL(file, cb){
+
+    if(file.type === "image/svg+xml"){
+      const r = new FileReader();
+      r.onload = ()=>{
+        const svgText = r.result;
+        const b64 = btoa(unescape(encodeURIComponent(svgText)));
+        cb("data:image/svg+xml;base64," + b64);
+      };
+      r.readAsText(file);
+    } else {
+      const r = new FileReader();
+      r.onload = ()=>{ cb(String(r.result||"")); };
+      r.readAsDataURL(file);
+    }
   }
 
-  if(mode === "kopposindo"){
-    var headerLeft;
-    var logo = settings.logoKoppDataUrl;
-    if(getUseLogoByMode("kopposindo") && logo){
-      headerLeft = '<img src="' + logo + '" style="height:45px;">';
-    }else{
-      headerLeft = '<strong>KOPERASI KONSUMEN PEGAWAI POS INDONESIA</strong>';
-    }
+  input.addEventListener("change", (e)=>{
+    const f = e.target.files?.[0];
+    if(!f) return;
+    const max = 10 * 1024 * 1024;
+    if(f.size > max){ alert("Ukuran logo melebihi 10 MB."); e.target.value=""; return; }
+    readFileAsDataURL(f, (dataUrl)=>{
+      try{
+        setLogo(dataUrl);
+        syncToPaper();
+        const fn = $("logoFileName");
+        if(fn) fn.textContent = f.name;
+        showToast("Logo berhasil disimpan!", "success");
+      }catch(err){ alert("Logo gagal disimpan: "+err.message); }
+    });
+    e.target.value="";
+  });
 
-    var unitFlag = "";
-    if(t.unit && String(t.unit).trim() !== ""){
-      unitFlag = '<div class="unit-flag-abs">' + escapeHTML(t.unit) + '</div>';
-    }
+  $("btnLogoClear").addEventListener("click", ()=>{
+    if(!confirm("Hapus logo tersimpan?")) return;
+    setLogo("");
+    syncToPaper();
+    const fn = $("logoFileName");
+    if(fn) fn.textContent = "Pilih file logo…";
+    showToast("Logo dihapus.", "success");
+  });
 
-    var kop = settings.kopposTTD || {
-      ketua: "Jamaludin P. Rachman, S.H.|Ketua I",
-      manSDM: "Jaelani S.Pd.I|Man. SDM"
+  const saved = getLogo();
+  if(saved && saved.startsWith("data:")){
+    const fn = $("logoFileName");
+    if(fn) fn.textContent = "Logo tersimpan ✓";
+  }
+})();
+
+function getSign(){
+  return localStorage.getItem(LS_SIGN) || "";
+}
+function setSign(dataUrl){
+  if(dataUrl) localStorage.setItem(LS_SIGN, dataUrl);
+  else localStorage.removeItem(LS_SIGN);
+  renderSign();
+}
+function renderSign(){
+  const wrap = $("signPengurusWrap");
+  if(!wrap) return;
+  const data = getSign();
+  const src  = data || SIGN_DEFAULT_SRC;
+  wrap.innerHTML = "";
+  if(src){
+    const img = document.createElement("img");
+    img.className = "signImg";
+    img.src = src;
+    img.alt = "Tanda Tangan";
+    wrap.appendChild(img);
+    $("signStatus").textContent = data ? "✅ TTD tersimpan (ikut saat print)." : "⚙ Menggunakan file default.";
+  } else {
+    $("signStatus").textContent = "Tidak ada TTD.";
+  }
+}
+
+(function(){
+  const input = $("signFile");
+  if(!input) return;
+
+  function readFileAsDataURL(file, cb){
+    if(file.type === "image/svg+xml"){
+      const r = new FileReader();
+      r.onload = ()=>{
+        const b64 = btoa(unescape(encodeURIComponent(r.result)));
+        cb("data:image/svg+xml;base64," + b64);
+      };
+      r.readAsText(file);
+    } else {
+      const r = new FileReader();
+      r.onload = ()=>{ cb(String(r.result||"")); };
+      r.readAsDataURL(file);
+    }
+  }
+
+  input.addEventListener("change", (e)=>{
+    const f = e.target.files?.[0];
+    if(!f) return;
+    const max = 20 * 1024 * 1024;
+    if(f.size > max){ alert("Ukuran TTD melebihi 20 MB."); e.target.value=""; return; }
+    readFileAsDataURL(f, (dataUrl)=>{
+      setSign(dataUrl);
+      syncToPaper();
+      const fn = $("signFileName");
+      if(fn) fn.textContent = f.name;
+      showToast("TTD berhasil disimpan!", "success");
+    });
+    e.target.value="";
+  });
+
+  const btnClear = $("btnSignClear");
+  if(btnClear) btnClear.addEventListener("click", ()=>{
+    if(!confirm("Reset TTD ke default?")) return;
+    setSign("");
+    syncToPaper();
+    const fn = $("signFileName");
+    if(fn) fn.textContent = "Pilih file TTD…";
+    showToast("TTD direset ke default.", "success");
+  });
+
+  const btnDel = $("btnSignDelete");
+  if(btnDel) btnDel.addEventListener("click", ()=>{
+    if(!confirm("Hapus tanda tangan? TTD tersimpan akan dihapus.")) return;
+    setSign("");
+    syncToPaper();
+    const fn = $("signFileName");
+    if(fn) fn.textContent = "Pilih file TTD…";
+    showToast("Tanda tangan dihapus.", "success");
+  });
+
+  const saved = getSign();
+  if(saved && saved.startsWith("data:")){
+    const fn = $("signFileName");
+    if(fn) fn.textContent = "TTD tersimpan ✓";
+  }
+})();
+
+function applyShift(){
+  const sx = Number($("shiftX").value||0);
+  const sy = Number($("shiftY").value||0);
+  $("paper").style.transform = `translate(${sx}mm, ${sy}mm)`;
+}
+["shiftX","shiftY"].forEach(id=>$(id).addEventListener("input", applyShift));
+
+function applySignAdjust(){
+  const paper = $("paper");
+  if(!paper) return;
+
+  const scalePct = Number($("signScale")?.value || 115);
+  const leftMm   = Number($("signLeft")?.value  || 132);
+  const topMm    = Number($("signTop")?.value   || 196);
+  const wMm      = Number($("signW")?.value     || 78);
+  const hMm      = Number($("signH")?.value     || 26);
+
+  paper.style.setProperty("--signScale", String(scalePct/100));
+  paper.style.setProperty("--signLeft",  `${leftMm}mm`);
+  paper.style.setProperty("--signTop",   `${topMm}mm`);
+  paper.style.setProperty("--signW",     `${wMm}mm`);
+  paper.style.setProperty("--signH",     `${hMm}mm`);
+}
+
+function saveSignPos(){
+  try{
+    const pos = {
+      signScale: Number($("signScale")?.value||115),
+      signLeft:  Number($("signLeft")?.value ||132),
+      signTop:   Number($("signTop")?.value  ||196),
+      signW:     Number($("signW")?.value    ||78),
+      signH:     Number($("signH")?.value    ||26),
+    };
+    localStorage.setItem(LS_SIGN_POS, JSON.stringify(pos));
+  }catch(e){}
+}
+function loadSignPos(){
+  try{
+    const saved = localStorage.getItem(LS_SIGN_POS);
+    if(!saved) return;
+    const pos = JSON.parse(saved);
+    if($("signScale") && pos.signScale != null) $("signScale").value = pos.signScale;
+    if($("signLeft")  && pos.signLeft  != null) $("signLeft").value  = pos.signLeft;
+    if($("signTop")   && pos.signTop   != null) $("signTop").value   = pos.signTop;
+    if($("signW")     && pos.signW     != null) $("signW").value     = pos.signW;
+    if($("signH")     && pos.signH     != null) $("signH").value     = pos.signH;
+  }catch(e){}
+}
+
+["signScale","signLeft","signTop","signW","signH"].forEach(id=>{
+  const el = $(id);
+  if(el) el.addEventListener("input", ()=>{
+    applySignAdjust();
+    saveSignPos(); // ← auto-save setiap perubahan
+  });
+});
+
+function syncToPaper(){
+  $("pNamaVal").textContent = $("pemberiNama").value.trim();
+  $("pJabVal").textContent  = $("pemberiJabatan").value.trim();
+  $("pPerVal").textContent  = $("pemberiPerusahaan").value.trim();
+  $("pAlmVal").textContent  = $("pemberiAlamat").value.trim();
+
+  $("rNamaVal").textContent = $("penerimaNama").value.trim();
+  $("rNamaValKiri").textContent = $("penerimaNama").value.trim();
+  $("rJabVal").textContent  = $("penerimaJabatan").value.trim();
+  $("rJabValKiri").textContent  = $("penerimaJabatan").value.trim();
+  $("rPerVal").textContent  = $("penerimaPerusahaan").value.trim();
+  $("rPerValKiri").textContent = $("penerimaPerusahaan").value.trim();
+  $("rAlmVal").textContent  = $("penerimaAlamat").value.trim();
+
+  $("v1").textContent = $("noPol").value.trim();
+  $("v2").textContent = $("merkType").value.trim();
+  $("v3").textContent = $("warna").value.trim();
+  $("v4").textContent = $("noRangka").value.trim();
+  $("v5").textContent = $("noMesin").value.trim();
+
+  const tujuan = $("tujuan").value.trim();
+  const alamat = $("alamatTujuan").value.trim();
+
+  const v6 = $("v6");
+  const v6addr = $("v6addr");
+  v6.innerHTML = "";
+  v6addr.innerHTML = "";
+
+  if(tujuan && alamat){
+    const a=document.createElement("a");
+    a.className="linklike linkBold";
+    a.href=mapsLink(alamat);
+    a.target="_blank";
+    a.rel="noopener";
+    a.innerHTML = emphasizeKC(tujuan);
+    v6.appendChild(a);
+
+    const a2=document.createElement("a");
+    a2.className="linklike";
+    a2.href=mapsLink(alamat);
+    a2.target="_blank";
+    a2.rel="noopener";
+    a2.textContent=alamat;
+    v6addr.appendChild(a2);
+  }else{
+    v6.textContent = tujuan;
+    v6addr.textContent = alamat;
+  }
+
+  $("picVal").textContent = $("pic").value.trim();
+  $("picValKCU").textContent = $("pic").value.trim();
+  $("hpVal").textContent  = $("hp").value.trim();
+
+  $("ketVal").textContent = $("keterangan").value.trim();
+
+  const tgl = $("tgl").value;
+  $("tglIndo").textContent = tgl ? ("Jakarta, " + indoDate(tgl)) : "";
+
+  $("f1").textContent = $("footer1").value.trim();
+  $("f2").textContent = $("footer2").value.trim();
+  $("f3").innerHTML   = formatFooter3($("footer3").value.trim());
+
+  const kcuWrap = $("kcuLinkWrap");
+  kcuWrap.innerHTML = "";
+  if(tujuan && alamat){
+    const a=document.createElement("a");
+    a.className="linklike linkBold";
+    a.href=mapsLink(alamat);
+    a.target="_blank";
+    a.rel="noopener";
+    a.innerHTML = emphasizeKC(tujuan);
+    kcuWrap.appendChild(a);
+  }else{
+    kcuWrap.textContent = tujuan || "";
+  }
+  renderLogo();
+  renderSign();
+  applyShift();
+  applySignAdjust();
+}
+
+[
+  "tgl","pemberiNama","pemberiJabatan","pemberiPerusahaan","pemberiAlamat",
+  "penerimaNama","penerimaJabatan","penerimaPerusahaan","penerimaAlamat",
+  "keterangan","footer1","footer2","footer3"
+].forEach(id=>$(id).addEventListener("input", syncToPaper));
+
+function normalizeRow(r){
+  const no = String(r["No"] ?? r["NO"] ?? "").trim().replace(/\.$/,"");
+  return {
+    No: no,
+    noPol: String(r["No. Polisi"] ?? r["No Polisi"] ?? r["NO. POLISI"] ?? "").trim(),
+    noRangka: String(r["No. Rangka"] ?? r["No Rangka"] ?? r["NO. RANGKA"] ?? "").trim(),
+    noMesin: String(r["No. Mesin"] ?? r["No Mesin"] ?? r["NO. MESIN"] ?? "").trim(),
+    tujuan: String(r["Tujuan"] ?? r["TUJUAN"] ?? "").trim(),
+    alamat: String(r["Alamat"] ?? r["ALAMAT"] ?? "").trim(),
+    pic: String(r["PIC"] ?? r["Pic"] ?? "").trim(),
+    hp: String(r["No. HP"] ?? r["No HP"] ?? r["NO. HP"] ?? "").trim(),
+    merkType: String(r["Material Desc"] ?? r["MaterialDesc"] ?? r["Material"] ?? "").trim(),
+    warna: String(r["Warna"] ?? r["WARNA"] ?? "").trim(),
+  };
+}
+function buildPrintChecklist(Nos){
+  const wrap = $("printPick");
+  if(!Nos.length){
+    wrap.innerHTML = `<div class="hint">Tidak ada nomor ditemukan.</div>`;
+    return;
+  }
+  wrap.innerHTML = Nos.map(n=>`
+    <label class="chip selected">
+      <input type="checkbox" class="chkNo" value="${escapeHtml(n)}" checked>
+      <span>No ${escapeHtml(n)}</span>
+    </label>
+  `).join("");
+
+  wrap.querySelectorAll(".chip").forEach(chip=>{
+    chip.addEventListener("click", ()=>{
+      const cb = chip.querySelector(".chkNo");
+      if(!cb) return;
+
+      setTimeout(()=>{
+        chip.classList.toggle("selected", cb.checked);
+        const all = [...document.querySelectorAll(".chkNo")].every(x=>x.checked);
+        const none = [...document.querySelectorAll(".chkNo")].every(x=>!x.checked);
+        $("chkAll").checked = all;
+        $("chkAll").indeterminate = !all && !none;
+      }, 0);
+    });
+  });
+
+  $("chkAll").checked = true;
+  $("chkAll").indeterminate = false;
+  $("chkAll").onchange = ()=>{
+    const on = $("chkAll").checked;
+    document.querySelectorAll(".chkNo").forEach(c=>{
+      c.checked = on;
+      c.closest(".chip")?.classList.toggle("selected", on);
+    });
+  };
+}
+async function handleExcelUpload(input){
+  const f = input.files?.[0];
+  if(!f) return;
+  try{
+    const data = await f.arrayBuffer();
+    const wb = XLSX.read(data, {type:"array"});
+    const wanted="Data Kendaraan";
+    const sheet = wb.SheetNames.includes(wanted) ? wanted : wb.SheetNames[0];
+    const ws = wb.Sheets[sheet];
+
+    const raw = XLSX.utils.sheet_to_json(ws, {header:1, defval:""});
+    let hidx=0;
+    for(let i=0;i<raw.length;i++){
+      const row = raw[i].map(x=>String(x).trim());
+      if(row.includes("No") && row.includes("Tujuan") && row.includes("Alamat")){ hidx=i; break; }
+    }
+    const headers = raw[hidx].map(x=>String(x).trim());
+    const rows=[];
+    for(let i=hidx+1;i<raw.length;i++){
+      const line=raw[i];
+      if(!line.some(v=>String(v).trim()!=="")) continue;
+      const obj={};
+      headers.forEach((h,i2)=>obj[h]=line[i2]);
+      rows.push(obj);
+    }
+    VEH = rows.map(normalizeRow).filter(x=>x.No);
+
+    const Nos=[...new Set(VEH.map(x=>x.No))].sort((a,b)=>Number(a)-Number(b));
+    $("pickNo").disabled=false;
+    $("pickNo").innerHTML = `<option value="">Pilih No…</option>` + Nos.map(n=>`<option value="${n}">${n}</option>`).join("");
+    $("excelStatus").textContent = `Loaded: ${sheet} | ${VEH.length} baris`;
+
+    buildPrintChecklist(Nos);
+
+    if(Nos.includes("1")){ $("pickNo").value="1"; applyLookup(); }
+  }catch(err){
+    console.error(err);
+    alert("Gagal baca Excel: " + err.message);
+  }
+}
+
+$("pickNo").addEventListener("change", applyLookup);
+
+function applyLookup(){
+  const n=$("pickNo").value;
+  const r=VEH.find(x=>x.No===n);
+  if(!r){
+    ["noPol","noRangka","noMesin","tujuan","alamatTujuan","pic","hp","merkType","warna"].forEach(id=>$(id).value="");
+    syncToPaper();
+    return;
+  }
+  $("noPol").value=r.noPol;
+  $("noRangka").value=r.noRangka;
+  $("noMesin").value=r.noMesin;
+  $("tujuan").value=r.tujuan;
+  $("alamatTujuan").value=r.alamat;
+  $("pic").value=r.pic;
+  $("hp").value=r.hp;
+  $("merkType").value=r.merkType;
+  $("warna").value=r.warna;
+  syncToPaper();
+}
+
+function getDoc(){
+  return {
+    id: (crypto.randomUUID?crypto.randomUUID():String(Date.now())+Math.random()),
+    createdAt: new Date().toISOString(),
+    No: $("pickNo").value,
+    tgl: $("tgl").value,
+
+    pemberiNama:$("pemberiNama").value.trim(),
+    pemberiJabatan:$("pemberiJabatan").value.trim(),
+    pemberiPerusahaan:$("pemberiPerusahaan").value.trim(),
+    pemberiAlamat:$("pemberiAlamat").value.trim(),
+
+    penerimaNama:$("penerimaNama").value.trim(),
+    penerimaJabatan:$("penerimaJabatan").value.trim(),
+    penerimaPerusahaan:$("penerimaPerusahaan").value.trim(),
+    penerimaAlamat:$("penerimaAlamat").value.trim(),
+
+    noPol:$("noPol").value.trim(),
+    merkType:$("merkType").value.trim(),
+    warna:$("warna").value.trim(),
+    noRangka:$("noRangka").value.trim(),
+    noMesin:$("noMesin").value.trim(),
+    tujuan:$("tujuan").value.trim(),
+    alamatTujuan:$("alamatTujuan").value.trim(),
+    pic:$("pic").value.trim(),
+    hp:$("hp").value.trim(),
+
+    keterangan:$("keterangan").value.trim(),
+    footer1:$("footer1").value.trim(),
+    footer2:$("footer2").value.trim(),
+    footer3:$("footer3").value.trim(),
+    signScale:Number($("signScale")?.value||115),
+    signLeft:Number($("signLeft")?.value||132),
+    signTop:Number($("signTop")?.value||196),
+    signW:Number($("signW")?.value||78),
+    signH:Number($("signH")?.value||26),
+
+    shiftX:Number($("shiftX")?.value||0),
+    shiftY:Number($("shiftY")?.value||0),
+  };
+}
+function loadDoc(d){
+  $("pickNo").value=d.No||"";
+  $("tgl").value=d.tgl||"";
+
+  $("pemberiNama").value=d.pemberiNama||"";
+  $("pemberiJabatan").value=d.pemberiJabatan||"";
+  $("pemberiPerusahaan").value=d.pemberiPerusahaan||"";
+  $("pemberiAlamat").value=d.pemberiAlamat||"";
+
+  $("penerimaNama").value=d.penerimaNama||"";
+  $("penerimaJabatan").value=d.penerimaJabatan||"";
+  $("penerimaPerusahaan").value=d.penerimaPerusahaan||"";
+  $("penerimaAlamat").value=d.penerimaAlamat||"";
+
+  $("noPol").value=d.noPol||"";
+  $("merkType").value=d.merkType||"";
+  $("warna").value=d.warna||"";
+  $("noRangka").value=d.noRangka||"";
+
+  $("noMesin").value=d.noMesin||"";
+  $("tujuan").value=d.tujuan||"";
+  $("alamatTujuan").value=d.alamatTujuan||"";
+  $("pic").value=d.pic||"";
+  $("hp").value=d.hp||"";
+
+  $("keterangan").value=d.keterangan||"";
+  $("footer1").value=d.footer1||"";
+  $("footer2").value=d.footer2||"";
+  $("footer3").value=d.footer3||"";
+
+  $("shiftX").value=d.shiftX??0;
+  $("shiftY").value=d.shiftY??0;
+
+  if($("signScale")) $("signScale").value = d.signScale??115;
+  if($("signLeft"))  $("signLeft").value  = d.signLeft??132;
+  if($("signTop"))   $("signTop").value   = d.signTop??196;
+  if($("signW"))     $("signW").value     = d.signW??78;
+  if($("signH"))     $("signH").value     = d.signH??26;
+
+  syncToPaper();
+}
+function refreshSaved(){
+  const saved = [...DOCS].sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+  const tb = $("savedBody");
+  tb.innerHTML = "";
+  if(!saved.length){
+    const tr=document.createElement("tr");
+    const td=document.createElement("td");
+    td.colSpan=4; td.style.color="#666"; td.textContent="Belum ada.";
+    tr.appendChild(td); tb.appendChild(tr);
+    return;
+  }
+  saved.forEach(function(d){
+    const tr = document.createElement("tr");
+
+    const td1=document.createElement("td"); td1.textContent=fmtDate(d.tgl);
+    const td2=document.createElement("td"); td2.textContent=d.noPol||"-";
+    const td3=document.createElement("td"); td3.textContent=d.tujuan||"-";
+    const td4=document.createElement("td");
+    const wrap=document.createElement("div"); wrap.className="actions";
+
+    const bMuat=document.createElement("button"); bMuat.className="btn"; bMuat.textContent="Muat";
+    bMuat.onclick=function(){ loadDoc(d); };
+
+    const bPrint=document.createElement("button"); bPrint.className="btn"; bPrint.textContent="Print";
+    bPrint.onclick=function(){ loadDoc(d); setTimeout(function(){ doPrintCurrentFixed(); },300); };
+
+    const bHapus=document.createElement("button"); bHapus.className="btn danger"; bHapus.textContent="Hapus";
+    bHapus.onclick=function(){
+      DOCS = DOCS.filter(function(x){ return x.id!==d.id; });
+      try{ localStorage.setItem(LS_KEY,JSON.stringify(DOCS)); }catch(e){}
+      refreshSaved();
+      showToast("Dokumen dihapus.", "success");
     };
 
-    var ketuaObj = splitTtd(kop.ketua);
-    var manObj   = splitTtd(kop.manSDM);
+    wrap.appendChild(bMuat); wrap.appendChild(bPrint); wrap.appendChild(bHapus);
+    td4.appendChild(wrap);
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4);
+    tb.appendChild(tr);
+  });
+}
+window.__load = (id)=>{ const d=readSaved().find(x=>x.id===id); if(d) loadDoc(d); };
+window.__del  = (id)=>{ const okD = (typeof confirm === "function") ? confirm("Hapus data ini?") : true; if(!okD) return; writeSaved(readSaved().filter(x=>x.id!==id)); refreshSaved(); };
+window.__printSaved = (id)=>{ const d=readSaved().find(x=>x.id===id); if(!d) return; loadDoc(d); doPrintCurrentFixed(); };
 
-    var ketuaName = ketuaObj.nama;
-    var ketuaJab  = ketuaObj.jabatan;
-    var manName   = manObj.nama;
-    var manJab    = manObj.jabatan;
+$("btnSaveAll").addEventListener("click", ()=>{
+  if(!VEH.length){ alert("Upload Excel dulu."); return; }
+  const picked = getSelectedNos();
+  if(!picked || !picked.length){ alert("Centang minimal 1 No."); return; }
+  const arr = readSaved();
+  const base = getDoc();
+  let added = 0;
+  for(const no of picked){
+    const r = VEH.find(x=>x.No===String(no));
+    if(!r) continue;
+    const d = {...base,
+      id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()),
+      createdAt: new Date().toISOString(),
+      No: String(no),
+      noPol: r.noPol, merkType: r.merkType, warna: r.warna,
+      noRangka: r.noRangka, noMesin: r.noMesin,
+      tujuan: r.tujuan, alamatTujuan: r.alamat,
+      pic: r.pic, hp: r.hp
+    };
+    arr.push(d); added++;
+  }
+  writeSaved(arr); refreshSaved();
+  alert(`${added} dokumen berhasil disimpan.`);
+});
+$("btnBackup").addEventListener("click", ()=>{
+  const payload = {version:1, exportedAt:new Date().toISOString(), data: readSaved()};
+  const blob = new Blob([JSON.stringify(payload,null,2)], {type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=`backup_bastk_${new Date().toISOString().slice(0,10)}.json`;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(a.href);
+});
+$("btnRestore").addEventListener("click", ()=> $("restoreFile").click());
+$("restoreFile").addEventListener("change", async (e)=>{
+  const f=e.target.files?.[0];
+  if(!f) return;
+  try{
+    const txt=await f.text();
+    const payload=JSON.parse(txt);
+    if(!payload?.data || !Array.isArray(payload.data)) return alert("Backup tidak valid.");
+    if(!confirm("Restore akan menimpa data tersimpan. Lanjutkan?")) return;
+    writeSaved(payload.data); refreshSaved(); alert("Restore berhasil.");
+  }catch{ alert("Gagal restore."); }
+  e.target.value="";
+});
 
-    return `
-      ${bankFlag}
-      ${unitFlag}
-      <div class="kuitansi-header">
-        ${headerLeft}
-        <div>No. Rek : ............................................................</div>
-      </div>
+function getSelectedNos(){
+  const chks = [...document.querySelectorAll(".chkNo")];
+  if(!chks.length) return [];
+  return chks.filter(c=>c.checked).map(c=>String(c.value));
+}
 
-      <div class="judul">${t.jenis==="masuk" ? "KAS MASUK" : "KAS KELUAR"}</div>
+function doPrintAll(){
+  if(!VEH.length) return alert("Upload Excel dulu untuk print terpilih.");
 
-      <table class="no-border-table">
-        <tr>
-          <td style="width:150px">Sudah Terima dari</td>
-          <td style="padding:0 14px 0 4px;">:</td>
-          <td><strong>Koperasi Konsumen Pegawai Pos Indonesia</strong></td>
-        </tr>
-        <tr>
-          <td>Besar Uang</td>
-          <td style="padding:0 14px 0 4px;">:</td>
-          <td class="terbilang">${terbilang(parseInt(t.jumlah,10)||0)} Rupiah</td>
-        </tr>
-        <tr>
-          <td>Untuk Pembayaran</td>
-          <td style="padding:0 14px 0 4px;">:</td>
-          <td>
-            <div class="ket-pembayaran">
-              ${ketHTML}
-              ${rekHTML}
-            </div>
-          </td>
-        </tr>
-      </table>
+  const picked = getSelectedNos();
+  if(!picked.length){
+    alert("Silakan centang minimal 1 No untuk Print Terpilih.");
+    return;
+  }
+  const NosToPrint = picked;
 
-      <div class="nominal-box">Rp ${(parseInt(t.jumlah,10)||0).toLocaleString("id-ID")}</div>
+  const base = getDoc();
+  let html = `<!doctype html><html><head><meta charset="utf-8"><title>Print Terpilih</title>
+    <base href="${location.href}">
+    <style>${document.querySelector("style").innerHTML}</style></head><body style="margin:0;background:#fff;">`;
 
-      <div style="margin-top:12px;">
-        <table class="no-border-table" style="width:100%;">
-          <tr>
-            <td style="width:50%; text-align:center;" class="mengetahui-block">
-              Mengetahui,<br>
-              Pengurus Koperasi Pegawai Pos Indonesia
-            </td>
-            <td style="width:50%; text-align:right;">
-              Jakarta, ${formatTanggalPanjang(t.tanggal)}
-            </td>
-          </tr>
-        </table>
-        <div style="height:1cm;"></div>
-      </div>
+  for(const no of NosToPrint){
+    const r=VEH.find(x=>x.No===String(no));
+    if(!r) continue;
 
-      <table class="direksi-table">
-        <tr>
-          <td class="nama-bold">${escapeHTML(ketuaName)}</td>
-          <td class="nama-bold">Rudi Priyadi, S.E.</td>
-          <td class="nama-bold">Nur Rachman, S.E.</td>
-          <td class="nama-bold">${escapeHTML(manName)}</td>
-          <td class="nama-bold">${escapeHTML(t.footerRight || "")}</td>
-        </tr>
-        <tr>
-          <td>${escapeHTML(ketuaJab)}</td>
-          <td>Bendahara I</td>
-          <td>Man. Akuntansi</td>
-          <td>${escapeHTML(manJab)}</td>
-          <td>${escapeHTML(t.jabatanRight || "")}</td>
-        </tr>
-      </table>
-    `;
+    const d={...base};
+    d.No=String(no);
+    d.noPol=r.noPol; d.noRangka=r.noRangka; d.noMesin=r.noMesin;
+    d.tujuan=r.tujuan; d.alamatTujuan=r.alamat; d.pic=r.pic; d.hp=r.hp;
+    d.merkType=r.merkType; d.warna=r.warna;
+
+    html += buildPaperHTML(d) + `<div style="page-break-after:always;"></div>`;
   }
 
-  var headerLeftB;
-  var logoB = settings.logoBmsDataUrl;
-  if(getUseLogoByMode("bms") && logoB){
-    headerLeftB = '<img src="' + logoB + '" style="height:45px;">';
-  }else{
-    headerLeftB = '<strong>PT. BERSAMA MENUJU SEJAHTERA</strong>';
-  }
+  html += `<script>window.onload=()=>doPrintCurrentFixed();<\/script></body></html>`;
 
-  var sdmObj = splitTtd((settings.direksi && settings.direksi.dirSDM) ? settings.direksi.dirSDM : "Jamaludin P. Rachman, S.H.|Direktur SDM");
-  var umumObj = splitTtd((settings.direksi && settings.direksi.dirUmum) ? settings.direksi.dirUmum : "Djajat Sudrajat|Direktur Umum");
-  var bmsManObj = splitTtd(settings.bmsManSDM || "");
+  let pd = document.getElementById('__pd');
+  if(pd) pd.remove();
+  pd = document.createElement('div');
+  pd.id = '__pd';
+  pd.innerHTML = html.replace(/^[\s\S]*<body[^>]*>/i,'').replace(/<\/body>[\s\S]*$/i,'');
+  pd.style.display = 'none';
+  document.body.appendChild(pd);
 
-  var namaSDM  = sdmObj.nama;
-  var jabSDM   = sdmObj.jabatan;
-  var namaUmum = umumObj.nama;
-  var jabUmum  = umumObj.jabatan;
-  var bmsManName = bmsManObj.nama;
-  var bmsManJab  = bmsManObj.jabatan;
+  let ps = document.getElementById('__ps');
+  if(ps) ps.remove();
+  ps = document.createElement('style');
+  ps.id = '__ps';
+  ps.textContent = '@media print{body>*:not(#__pd){display:none!important}#__pd{display:block!important}#__pd .paper{page-break-after:always}}';
+  document.head.appendChild(ps);
+
+  doPrintCurrentFixed();
+  setTimeout(function(){ pd.remove(); ps.remove(); }, 2000);
+}
+
+function buildPaperHTML(d){
+  const tglText = d.tgl ? ("Jakarta, " + indoDate(d.tgl)) : "";
+
+  const tujuanHTML = emphasizeKC(d.tujuan || "");
+  const tujuanLinkBold = (d.tujuan && d.alamatTujuan)
+    ? `<a class="linklike linkBold" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.alamatTujuan)}" target="_blank" rel="noopener">${tujuanHTML}</a>`
+    : `<span class="linkBold">${tujuanHTML}</span>`;
+
+  const alamatLinkNormal = (d.alamatTujuan)
+    ? `<a class="linklike" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(d.alamatTujuan)}" target="_blank" rel="noopener">${escapeHtml(d.alamatTujuan)}</a>`
+    : ``;
+
+  const logo = getLogo();
+  const logoHTML = logo
+    ? `<div class="logoBox"><img class="logoImg" src="${logo}" alt="Logo"></div>`
+    : `<div class="logoBox"><div style="font-size:10.5px;">(LOGO)</div></div>`;
+
+  const sign = getSign() || SIGN_DEFAULT_SRC;
+  const signHTML = sign
+    ? `<div class="signPengurus"><img class="signImg" src="${sign}" alt="Tanda Tangan"></div>`
+    : ``;
 
   return `
-    ${bankFlag}
-    <div class="kuitansi-header">
-      ${headerLeftB}
-      <div>No. Rek : ............................................................</div>
+    <div class="paper" style="transform:translate(${Number(d.shiftX||0)}mm,${Number(d.shiftY||0)}mm); --signScale:${Number(d.signScale??115)/100}; --signLeft:${Number(d.signLeft??132)}mm; --signTop:${Number(d.signTop??196)}mm; --signW:${Number(d.signW??78)}mm; --signH:${Number(d.signH??26)}mm;">
+      <div class="frame"></div>
+
+      ${logoHTML}
+      ${signHTML}
+
+      <div class="t center title" style="left:0; right:0; top:29mm;">BERITA ACARA SERAH TERIMA KENDARAAN</div>
+
+      <div class="t bold" style="left:14mm; top:42mm;">Yang bertanda tangan di bawah ini :</div>
+
+      <div class="t" style="left:14mm; top:48mm;">Nama</div><div class="t" style="left:34mm; top:48mm;">:</div><div class="t" style="left:37mm; top:48mm; width:75mm;">${escapeHtml(d.pemberiNama||"")}</div>
+      <div class="t" style="left:14mm; top:53mm;">Jabatan</div><div class="t" style="left:34mm; top:53mm;">:</div><div class="t" style="left:37mm; top:53mm; width:75mm;">${escapeHtml(d.pemberiJabatan||"")}</div>
+      <div class="t" style="left:14mm; top:58mm;">Perusahaan</div><div class="t" style="left:34mm; top:58mm;">:</div><div class="t" style="left:37mm; top:58mm; width:75mm;">${escapeHtml(d.pemberiPerusahaan||"")}</div>
+
+      <div class="t" style="left:14mm; top:65mm;">Alamat Kantor</div><div class="t" style="left:34mm; top:65mm;">:</div><div class="t" style="left:37mm; top:65mm; width:75mm;">${escapeHtml(d.pemberiAlamat||"")}</div>
+
+      <div class="t bold" style="left:118mm; top:42mm;">Dengan ini menyerahkan kepada :</div>
+      <div class="t" style="left:118mm; top:48mm;">Nama</div><div class="t" style="left:140mm; top:48mm;">:</div><div class="t" style="left:143mm; top:48mm; width:55mm;">${escapeHtml(d.penerimaNama||"")}</div>
+      <div class="t" style="left:118mm; top:53mm;">Jabatan</div><div class="t" style="left:140mm; top:53mm;">:</div><div class="t" style="left:143mm; top:53mm; width:55mm;">${escapeHtml(d.penerimaJabatan||"")}</div>
+      <div class="t" style="left:118mm; top:58mm;">Perusahaan</div><div class="t" style="left:140mm; top:58mm;">:</div><div class="t" style="left:143mm; top:58mm; width:55mm;">${escapeHtml(d.penerimaPerusahaan||"")}</div>
+
+      <div class="t" style="left:118mm; top:65mm;">Alamat Kantor</div><div class="t" style="left:140mm; top:65mm;">:</div><div class="t" style="left:143mm; top:65mm; width:55mm;">${escapeHtml(d.penerimaAlamat||"")}</div>
+
+      <div class="t bold" style="left:14mm; top:76mm;">Data kendaraan sebagai berikut :</div>
+      <div class="t" style="left:22mm; top:82mm;">1 )</div><div class="t" style="left:30mm; top:82mm;">No. Polisi</div><div class="t" style="left:52mm; top:82mm;">:</div><div class="t" style="left:55mm; top:82mm; width:70mm;">${escapeHtml(d.noPol||"")}</div>
+      <div class="t" style="left:22mm; top:87mm;">2 )</div><div class="t" style="left:30mm; top:87mm;">Merk/type</div><div class="t" style="left:52mm; top:87mm;">:</div><div class="t" style="left:55mm; top:87mm; width:70mm;">${escapeHtml(d.merkType||"")}</div>
+      <div class="t" style="left:22mm; top:92mm;">3 )</div><div class="t" style="left:30mm; top:92mm;">Warna</div><div class="t" style="left:52mm; top:92mm;">:</div><div class="t" style="left:55mm; top:92mm; width:70mm;">${escapeHtml(d.warna||"")}</div>
+      <div class="t" style="left:22mm; top:97mm;">4 )</div><div class="t" style="left:30mm; top:97mm;">No. Rangka</div><div class="t" style="left:52mm; top:97mm;">:</div><div class="t" style="left:55mm; top:97mm; width:70mm;">${escapeHtml(d.noRangka||"")}</div>
+      <div class="t" style="left:22mm; top:102mm;">5 )</div><div class="t" style="left:30mm; top:102mm;">No. Mesin</div><div class="t" style="left:52mm; top:102mm;">:</div><div class="t" style="left:55mm; top:102mm; width:70mm;">${escapeHtml(d.noMesin||"")}</div>
+
+      <div class="t" style="left:22mm; top:107mm;">6 )</div>
+
+      <div class="t" style="left:30mm; top:107mm;">Kantor Tujuan</div>
+      <div class="t" style="left:52mm; top:107mm;">:</div>
+      <div class="t" style="left:55mm; top:107mm; width:62mm;">${tujuanLinkBold}</div>
+      <div class="t" style="left:55mm; top:112mm; width:62mm; font-size:11.2px; line-height:1.12;">${alamatLinkNormal}</div>
+
+      <div class="t" style="left:118mm; top:106mm;">Nama</div><div class="t" style="left:140mm; top:106mm;">:</div><div class="t" style="left:143mm; top:106mm; width:55mm;">${escapeHtml(d.pic||"")}</div>
+      <div class="t" style="left:118mm; top:111mm;">HP</div><div class="t" style="left:140mm; top:111mm;">:</div><div class="t" style="left:143mm; top:111mm; width:55mm;">${escapeHtml(d.hp||"")}</div>
+
+      <div class="t bold" style="left:14mm; top:122mm;">Kelengkapan Kendaraan berupa :</div>
+
+      <div class="t" style="left:22mm; top:128mm;">1</div><div class="t" style="left:28mm; top:128mm; width:60mm;">STNK</div><div class="t" style="left:92mm; top:128mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:22mm; top:133mm;">2</div><div class="t" style="left:28mm; top:133mm; width:60mm;">Kunci Kontak 2 (dua) buah</div><div class="t" style="left:92mm; top:133mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:22mm; top:138mm;">3</div><div class="t" style="left:28mm; top:138mm; width:60mm;">Tool Set</div><div class="t" style="left:92mm; top:138mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:22mm; top:143mm;">4</div><div class="t" style="left:28mm; top:143mm; width:60mm;">Dongkrak</div><div class="t" style="left:92mm; top:143mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:22mm; top:148mm;">5</div><div class="t" style="left:28mm; top:148mm; width:60mm;">Ban Serep + Engkol</div><div class="t" style="left:92mm; top:148mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:22mm; top:153mm;">6</div><div class="t" style="left:28mm; top:153mm; width:60mm;">Dinamo</div><div class="t" style="left:92mm; top:153mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:22mm; top:158mm;">7</div><div class="t" style="left:28mm; top:158mm; width:60mm;">AC</div><div class="t" style="left:92mm; top:158mm;"><span class="box-wrap"><span class="box"></span></span></div>
+
+      <div class="t" style="left:118mm; top:128mm;">8</div><div class="t" style="left:124mm; top:128mm; width:55mm;">Head Unit/Audio</div><div class="t" style="left:182mm; top:128mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:118mm; top:133mm;">9</div><div class="t" style="left:124mm; top:133mm; width:55mm;">Buku Service</div><div class="t" style="left:182mm; top:133mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:118mm; top:138mm;">10</div><div class="t" style="left:124mm; top:138mm; width:55mm;">Light Bar/USB</div><div class="t" style="left:182mm; top:138mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:118mm; top:143mm;">11</div><div class="t" style="left:124mm; top:143mm; width:55mm;">Kunci + K</div><div class="t" style="left:182mm; top:143mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:118mm; top:148mm;">12</div><div class="t" style="left:124mm; top:148mm; width:55mm;">APAR + Pengaman</div><div class="t" style="left:182mm; top:148mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:118mm; top:153mm;">13</div><div class="t" style="left:124mm; top:153mm; width:55mm;">Spion kiri</div><div class="t" style="left:182mm; top:153mm;"><span class="box-wrap"><span class="box"></span></span></div>
+      <div class="t" style="left:118mm; top:158mm;">14</div><div class="t" style="left:124mm; top:158mm; width:55mm;">Lain-lain</div><div class="t" style="left:182mm; top:158mm;"><span class="box-wrap"><span class="box"></span></span></div>
+
+      <div class="t" style="left:14mm; top:171.5mm; width:180mm;">${escapeHtml(d.keterangan||"")}</div>
+      <div class="t" style="left:14mm; top:181.0mm; width:180mm;">Demikian Berita Serah Terima Kendaraan ini dibuat dan untuk dipergunakan sebagaimana mestinya.</div>
+
+      <div class="t center" style="left:24mm; top:192mm; width:70mm;">Diterima oleh :</div>
+      <div class="t center" style="left:24mm; top:197mm; width:70mm;">${escapeHtml(d.penerimaPerusahaan||"")}</div>
+      <div class="t center bold" style="left:24mm; top:224.6mm; width:70mm;">${escapeHtml(d.penerimaNama||"")}</div>
+      <div class="t" style="left:24mm; top:221mm; width:70mm;">
+        <div style="width:55mm; margin:0 auto; border-top:1px solid var(--ink);"></div>
+      </div>
+      <div class="t center" style="left:24mm; top:229.3mm; width:70mm; font-size:10.7px;">${escapeHtml(d.penerimaJabatan||"")}</div>
+
+      <div class="t center" style="left:132mm; top:188mm; width:70mm;">${escapeHtml(tglText)}</div>
+      <div class="t center" style="left:132mm; top:192mm; width:70mm;">Diserahkan oleh :</div>
+      <div class="t center" style="left:132mm; top:197mm; width:70mm;">Pengurus Kopposindo</div>
+
+      <div class="t" style="left:132mm; top:221mm; width:70mm;">
+        <div style="width:55mm; margin:0 auto; border-top:1px solid var(--ink);"></div>
+      </div>
+
+      <div class="t center bold" style="left:132mm; top:224.6mm; width:70mm;">Rumpun Joko Pamungkas, SH.</div>
+      <div class="t center" style="left:132mm; top:229.3mm; width:70mm; font-size:10.7px;">Ketua II</div>
+
+      <div class="t center" style="left:80mm; top:232mm; width:70mm;">Diterima oleh :</div>
+      <div class="t center" style="left:80mm; top:237mm; width:70mm;">${tujuanLinkBold}</div>
+      <div class="t" style="left:92mm; top:264.5mm; width:50mm; border-top:1px solid var(--ink);"></div>
+      <div class="t center bold" style="left:80mm; top:260mm; width:70mm;">${escapeHtml(d.pic||"")}</div>
+
+      <div class="note">Note : Dibubuhkan Tanda Tangan, Nama Jelas, Stempel dan Tanggal terima</div>
+
+      <div class="footerLine"></div>
+      <div class="footer">
+        <div class="bold">${escapeHtml(d.footer1||"")}</div>
+        <div>${escapeHtml(d.footer2||"")}</div>
+        <div>${formatFooter3(d.footer3||"")}</div>
+      </div>
     </div>
-
-    <div class="judul">${t.jenis==="masuk" ? "KAS MASUK" : "KAS KELUAR"}</div>
-
-    <table class="no-border-table">
-      <tr>
-        <td style="width:150px">Sudah Terima dari</td>
-        <td style="padding:0 14px 0 4px;">:</td>
-        <td>PT. Bersama Menuju Sejahtera</td>
-      </tr>
-      <tr>
-        <td>Besar Uang</td>
-        <td style="padding:0 14px 0 4px;">:</td>
-        <td class="terbilang">${terbilang(parseInt(t.jumlah,10)||0)} Rupiah</td>
-      </tr>
-      <tr>
-        <td>Untuk Pembayaran</td>
-        <td style="padding:0 14px 0 4px;">:</td>
-        <td>
-          <div class="ket-pembayaran">
-            ${ketHTML}
-            ${rekHTML}
-          </div>
-        </td>
-      </tr>
-    </table>
-
-    <div class="nominal-box">Rp ${(parseInt(t.jumlah,10)||0).toLocaleString("id-ID")}</div>
-
-    <div style="margin-top:12px;">
-      <table class="no-border-table" style="width:100%;">
-        <tr>
-          <td style="width:50%; text-align:center;" class="mengetahui-block">
-            Mengetahui,<br>
-            Direksi PT. Bersama Menuju Sejahtera
-          </td>
-          <td style="width:50%; text-align:right;">
-            Jakarta, ${formatTanggalPanjang(t.tanggal)}
-          </td>
-        </tr>
-      </table>
-      <div style="height:1cm;"></div>
-    </div>
-
-    <table class="direksi-table">
-      <tr>
-        <td class="nama-bold">${escapeHTML(namaSDM)}</td>
-        <td class="nama-bold">${escapeHTML(namaUmum)}</td>
-        <td class="nama-bold">Rudi Priyadi, S.E.</td>
-        <td class="nama-bold">Nur Rachman, S.E.</td>
-        <td class="nama-bold">${escapeHTML(bmsManName)}</td>
-        <td class="nama-bold">${escapeHTML(t.footerRight || "")}</td>
-      </tr>
-      <tr>
-        <td>${escapeHTML(jabSDM)}</td>
-        <td>${escapeHTML(jabUmum)}</td>
-        <td>Dir. Keuangan</td>
-        <td>Man. Akuntansi</td>
-        <td>${escapeHTML(bmsManJab)}</td>
-        <td>${escapeHTML(t.jabatanRight || "")}</td>
-      </tr>
-    </table>
   `;
 }
 
-function cetakKuitansi(i){
-  var t = transaksi[i];
-  if(!t) return;
-  document.getElementById("kuitansi-box").innerHTML = '<div class="kuitansi-box">' + generateKuitansiInnerHTML(t) + '</div>';
-  window.print();
-}
-
-function toggleAll(source){
-  document.querySelectorAll(".pilihCetak").forEach(function(cb){
-    cb.checked = source.checked;
-  });
-}
-
-function cetakBanyak(mode){
-  var pilih = Array.from(document.querySelectorAll(".pilihCetak:checked"))
-    .map(function(e){ return parseInt(e.value,10); });
-
-  if(pilih.length === 0){
-    alert("Pilih transaksi yang ingin dicetak dulu.");
-    return;
-  }
-
-  var html = "";
-
-  pilih.forEach(function(index, idx){
-    var t = transaksi[index];
-    var inner = generateKuitansiInnerHTML(t);
-
-    if(mode === "3"){
-      html += '<div class="kuitansi-box" style="margin:0 auto 4mm auto;">' + inner + '</div>';
-      if((idx % 3) === 2 && idx !== pilih.length - 1){
-        html += '<div style="page-break-after: always;"></div>';
-      }
-    }else{
-      html += '<div class="kuitansi-box" style="margin:0 auto;">' + inner + '</div>';
-      if(idx !== pilih.length - 1){
-        html += '<div style="page-break-after: always;"></div>';
-      }
-    }
-  });
-
-  document.getElementById("kuitansi-box").innerHTML = html;
-  window.print();
-}
-
-var searchInput = document.getElementById("search-input");
-if(searchInput){
-  searchInput.addEventListener("input", function(){
-    filterKeyword = this.value;
-    renderTabel();
-  });
-}
-
-var keteranganInput = document.getElementById("keterangan");
-var keteranganBox = document.getElementById("keterangan-suggestions");
-var keteranganCurrentList = [];
-var keteranganActiveIndex = -1;
-
-function normalizeText(str){
-  return String(str || "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function getKeteranganSuggestions(keyword){
-  var modeNow = settings.modeKuitansi || "bms";
-  var key = normalizeText(keyword);
-  if(!key) return [];
-
-  var seen = {};
-  var hasil = [];
-
-  for(var i = transaksi.length - 1; i >= 0; i--){
-    var t = transaksi[i];
-    var mode = t.mode || "bms";
-    if(mode !== modeNow) continue;
-
-    var ket = String(t.keterangan || "").trim();
-    if(!ket) continue;
-
-    var normKet = normalizeText(ket);
-    if(normKet === key) continue;
-    if(normKet.indexOf(key) !== 0) continue;
-    if(seen[normKet]) continue;
-
-    seen[normKet] = true;
-    hasil.push(ket);
-
-    if(hasil.length >= 8) break;
-  }
-
-  return hasil;
-}
-
-function renderKeteranganSuggestions(list){
-  keteranganCurrentList = list || [];
-  keteranganActiveIndex = -1;
-
-  if(!keteranganCurrentList.length){
-    hideKeteranganSuggestions();
-    return;
-  }
-
-  keteranganBox.innerHTML = "";
-  keteranganCurrentList.forEach(function(item, index){
-    var div = document.createElement("div");
-    div.className = "keterangan-item";
-    div.textContent = item;
-    div.dataset.index = index;
-
-    div.addEventListener("mousedown", function(e){
-      e.preventDefault();
-      pilihKeteranganSuggestion(index);
-    });
-
-    keteranganBox.appendChild(div);
-  });
-
-  keteranganBox.style.display = "block";
-}
-
-function hideKeteranganSuggestions(){
-  keteranganBox.style.display = "none";
-  keteranganBox.innerHTML = "";
-  keteranganCurrentList = [];
-  keteranganActiveIndex = -1;
-}
-
-function pilihKeteranganSuggestion(index){
-  if(index < 0 || index >= keteranganCurrentList.length) return;
-  keteranganInput.value = keteranganCurrentList[index];
-  hideKeteranganSuggestions();
-  keteranganInput.focus();
-  var len = keteranganInput.value.length;
-  keteranganInput.setSelectionRange(len, len);
-}
-
-function setActiveSuggestion(index){
-  var items = keteranganBox.querySelectorAll(".keterangan-item");
-  items.forEach(function(el){ el.classList.remove("active"); });
-
-  if(index < 0 || index >= items.length){
-    keteranganActiveIndex = -1;
-    return;
-  }
-
-  keteranganActiveIndex = index;
-  items[index].classList.add("active");
-  items[index].scrollIntoView({ block: "nearest" });
-}
-
-function refreshKeteranganAutocomplete(){
-  if(!keteranganInput) return;
-  var val = keteranganInput.value || "";
-  var list = getKeteranganSuggestions(val);
-  renderKeteranganSuggestions(list);
-}
-
-if(keteranganInput){
-  keteranganInput.addEventListener("input", function(){
-    refreshKeteranganAutocomplete();
-  });
-
-  keteranganInput.addEventListener("keydown", function(e){
-    var visible = keteranganBox.style.display === "block" && keteranganCurrentList.length > 0;
-
-    if(visible && e.key === "ArrowDown"){
-      e.preventDefault();
-      setActiveSuggestion(keteranganActiveIndex + 1 >= keteranganCurrentList.length ? 0 : keteranganActiveIndex + 1);
-      return;
-    }
-
-    if(visible && e.key === "ArrowUp"){
-      e.preventDefault();
-      setActiveSuggestion(keteranganActiveIndex - 1 < 0 ? keteranganCurrentList.length - 1 : keteranganActiveIndex - 1);
-      return;
-    }
-
-    if(visible && (e.key === "Enter" || e.key === "Tab") && keteranganActiveIndex >= 0){
-      e.preventDefault();
-      pilihKeteranganSuggestion(keteranganActiveIndex);
-      return;
-    }
-
-    if(visible && e.key === "Escape"){
-      hideKeteranganSuggestions();
-      return;
-    }
-
-    if(e.key === "Tab" && !visible){
-      var start = this.selectionStart;
-      var end = this.selectionEnd;
-      this.value = this.value.substring(0, start) + "\t" + this.value.substring(end);
-      this.selectionStart = this.selectionEnd = start + 1;
-      e.preventDefault();
-    }
-  });
-
-  keteranganInput.addEventListener("blur", function(){
-    setTimeout(function(){ hideKeteranganSuggestions(); }, 150);
-  });
-
-  keteranganInput.addEventListener("focus", function(){
-    refreshKeteranganAutocomplete();
-  });
-}
-
-function applyDireksiToUI(){
-  var sdm     = document.getElementById("dirSDMSelect");
-  var umum    = document.getElementById("dirUmumSelect");
-  var bmsMan  = document.getElementById("bmsManSDMSelect");
-  var kopK    = document.getElementById("kopKetuaSelect");
-  var kopMSDM = document.getElementById("kopManSDMSelect");
-
-  if(settings.direksi){
-    if(sdm)  sdm.value  = settings.direksi.dirSDM || "Jamaludin P. Rachman, S.H.|Direktur SDM";
-    if(umum) umum.value = settings.direksi.dirUmum || "Djajat Sudrajat|Direktur Umum";
-  }
-
-  if(bmsMan) bmsMan.value = (settings.bmsManSDM !== undefined) ? settings.bmsManSDM : "Jaelani S.Pd.I|Man. SDM";
-
-  if(settings.kopposTTD){
-    if(kopK)    kopK.value    = (settings.kopposTTD.ketua !== undefined) ? settings.kopposTTD.ketua : "Jamaludin P. Rachman, S.H.|Ketua I";
-    if(kopMSDM) kopMSDM.value = (settings.kopposTTD.manSDM !== undefined) ? settings.kopposTTD.manSDM : "Jaelani S.Pd.I|Man. SDM";
-  }
-}
-
-function applySettingsToUI(){
-  var modeSel = document.getElementById("modeKuitansi");
-  if(modeSel) modeSel.value = settings.modeKuitansi || "bms";
-
-  var modeNow = settings.modeKuitansi || "bms";
-
-  var useLogoCb = document.getElementById("useLogo");
-  if(useLogoCb) useLogoCb.checked = getUseLogoByMode(modeNow);
-
-  var logoPrev = document.getElementById("logoPreview");
-  if(logoPrev){
-    logoPrev.innerHTML = "";
-    var logo = (modeNow === "kopposindo") ? settings.logoKoppDataUrl : settings.logoBmsDataUrl;
-    if(getUseLogoByMode(modeNow) && logo){
-      var img = document.createElement("img");
-      img.src = logo;
-      logoPrev.appendChild(img);
-    }
-  }
-
-  var wrapBms  = document.getElementById("wrap-bms");
-  var wrapKopp = document.getElementById("wrap-kopp");
-  if(wrapBms && wrapKopp){
-    if(modeNow === "kopposindo"){
-      wrapBms.style.display = "none";
-      wrapKopp.style.display = "block";
-    }else{
-      wrapBms.style.display = "block";
-      wrapKopp.style.display = "none";
-    }
-  }
-
-  var wrapUnit = document.getElementById("wrap-unit");
-  if(wrapUnit){
-    wrapUnit.style.display = (modeNow === "kopposindo") ? "block" : "none";
-  }
-
-  applyDireksiToUI();
-  refreshKeteranganAutocomplete();
-}
-
-function openSettings(){
-  document.getElementById("main").classList.add("hidden");
-  document.getElementById("settings-page").classList.remove("hidden");
-  document.getElementById("settings-page").scrollIntoView({behavior:"smooth"});
-}
-
-function backToHome(){
-  document.getElementById("settings-page").classList.add("hidden");
-  document.getElementById("main").classList.remove("hidden");
-  document.getElementById("app").scrollIntoView({behavior:"smooth"});
-}
-
-var menuButton = document.getElementById("menu-button");
-if(menuButton){
-  menuButton.addEventListener("click", function(){
-    openSettings();
-  });
-}
-
-document.getElementById("useLogo").addEventListener("change", function(){
-  var modeNow = settings.modeKuitansi || "bms";
-  setUseLogoByMode(modeNow, this.checked);
-  saveSettings();
-  applySettingsToUI();
-});
-
-document.getElementById("logoInput").addEventListener("change", function(e){
-  var file = e.target.files[0];
-  if(!file) return;
-
-  var reader = new FileReader();
-  reader.onload = function(ev){
-    var mode = settings.modeKuitansi || "bms";
-    if(mode === "kopposindo"){
-      settings.logoKoppDataUrl = ev.target.result;
-    }else{
-      settings.logoBmsDataUrl = ev.target.result;
-    }
-    setUseLogoByMode(mode, true);
-    saveSettings();
-    applySettingsToUI();
-  };
-  reader.readAsDataURL(file);
-});
-
-document.getElementById("modeKuitansi").addEventListener("change", function(){
-  settings.modeKuitansi = this.value;
-  saveSettings();
-  applySettingsToUI();
-  renderTabel();
-});
-
-document.getElementById("dirSDMSelect").addEventListener("change", function(){
-  if(!settings.direksi) settings.direksi = {};
-  settings.direksi.dirSDM = this.value;
-  saveSettings();
-});
-
-document.getElementById("dirUmumSelect").addEventListener("change", function(){
-  if(!settings.direksi) settings.direksi = {};
-  settings.direksi.dirUmum = this.value;
-  saveSettings();
-});
-
-document.getElementById("bmsManSDMSelect").addEventListener("change", function(){
-  settings.bmsManSDM = this.value;
-  saveSettings();
-});
-
-document.getElementById("kopKetuaSelect").addEventListener("change", function(){
-  if(!settings.kopposTTD) settings.kopposTTD = {};
-  settings.kopposTTD.ketua = this.value;
-  saveSettings();
-});
-
-
-document.getElementById("kopManSDMSelect").addEventListener("change", function(){
-  if(!settings.kopposTTD) settings.kopposTTD = {};
-  settings.kopposTTD.manSDM = this.value;
-  saveSettings();
-});
-
-function hapusLogo(){
-  var mode = settings.modeKuitansi || "bms";
-  if(mode === "kopposindo"){
-    settings.logoKoppDataUrl = null;
-  }else{
-    settings.logoBmsDataUrl = null;
-  }
-  setUseLogoByMode(mode, false);
-  saveSettings();
-  applySettingsToUI();
-}
-
-function backupData(){
-  var backupObj = { transaksi: transaksi, settings: settings };
-  var blob = new Blob([JSON.stringify(backupObj, null, 2)], {type:"application/json"});
-  var url  = URL.createObjectURL(blob);
-  var a    = document.createElement("a");
-  a.href = url;
-  a.download = "backup_keuangan_" + Date.now() + ".json";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-  alert("Backup berhasil dibuat.");
-}
-
-document.getElementById("restoreInput").addEventListener("change", function(e){
-  var file = e.target.files[0];
-  if(!file) return;
-
-  var reader = new FileReader();
-  reader.onload = function(ev){
-    try{
-      var data = JSON.parse(ev.target.result);
-
-      if(data.transaksi){
-        transaksi = data.transaksi;
-        saveTransaksi();
-      }
-      if(data.settings){
-        settings = data.settings;
-        if(!settings.modeKuitansi) settings.modeKuitansi = "bms";
-        if(!settings.direksi){
-          settings.direksi = {
-            dirSDM: "Jamaludin P. Rachman, S.H.|Direktur SDM",
-            dirUmum: "Djajat Sudrajat|Direktur Umum"
-          };
-        }
-        if(settings.bmsManSDM === undefined){
-          settings.bmsManSDM = "Jaelani S.Pd.I|Man. SDM";
-        }
-        if(!settings.kopposTTD){
-          settings.kopposTTD = {
-            ketua: "Jamaludin P. Rachman, S.H.|Ketua I",
-                  manSDM: "Jaelani S.Pd.I|Man. SDM"
-          };
-        }
-        if(settings.kopposTTD.ketua === undefined){
-          settings.kopposTTD.ketua = "Jamaludin P. Rachman, S.H.|Ketua I";
-        }
-        if(settings.kopposTTD.manSDM === undefined){
-          settings.kopposTTD.manSDM = "Jaelani S.Pd.I|Man. SDM";
-        }
-        if(settings.useLogoBms === undefined && settings.useLogoKopp === undefined){
-          var oldUse = (settings.useLogo === undefined) ? false : !!settings.useLogo;
-          settings.useLogoBms  = oldUse;
-          settings.useLogoKopp = oldUse;
-        }
-        saveSettings();
-      }
-
-      applySettingsToUI();
-      renderTabel();
-      alert("Backup berhasil dipulihkan. Jika tampilan belum sesuai, silakan refresh halaman.");
-    }catch(err){
-      alert("File backup tidak valid.");
-    }
-  };
-  reader.readAsText(file);
-});
-
-function resetData(){
-  if(!confirm("Yakin ingin menghapus semua transaksi dan pengaturan? Data hanya bisa dikembalikan dari file backup.")){
-    return;
-  }
-
-  transaksi = [];
-  saveTransaksi();
-
-  settings = {
-    useLogoBms: false,
-    useLogoKopp: false,
-    logoBmsDataUrl: null,
-    logoKoppDataUrl: null,
-    modeKuitansi: "bms",
-    direksi: {
-      dirSDM: "Jamaludin P. Rachman, S.H.|Direktur SDM",
-      dirUmum: "Djajat Sudrajat|Direktur Umum"
-    },
-    bmsManSDM: "Jaelani S.Pd.I|Man. SDM",
-    kopposTTD: {
-      ketua: "Jamaludin P. Rachman, S.H.|Ketua I",
-      manSDM: "Jaelani S.Pd.I|Man. SDM"
-    }
-  };
-
-  saveSettings();
-  applySettingsToUI();
-  renderTabel();
-  alert("Transaksi dan pengaturan berhasil direset.\nJika ingin mengembalikan, gunakan file backup yang sudah diexport.");
-}
-
-applySettingsToUI();
-renderTabel();
-setToday();
-
-document.addEventListener("click", function(e){
-  var wrap = document.querySelector(".autocomplete-wrap");
+(function init(){
+  const t=new Date();
+  const iso=new Date(t.getTime()-t.getTimezoneOffset()*60000).toISOString().slice(0,10);
+  $("tgl").value=iso;
+  renderLogo();
+  renderSign();
+  loadSignPos();     // ← load posisi TTD tersimpan sebelum apply
+  applySignAdjust();
+  syncToPaper();
+  refreshSaved();
+})();
+
+function toggleChips(btn){
+  var wrap = document.getElementById('chipsCollapseWrap');
   if(!wrap) return;
-  if(!wrap.contains(e.target)){
-    hideKeteranganSuggestions();
+  if(wrap.style.maxHeight === 'none' || parseInt(wrap.style.maxHeight) > 200){
+    wrap.style.maxHeight = '96px';
+    btn.textContent = '\u25BC Tampilkan semua';
+  } else {
+    wrap.style.maxHeight = 'none';
+    btn.textContent = '\u25B2 Sembunyikan';
   }
+}
+
+(function(){
+  function getCheckedNos(){
+
+    const chips = document.querySelectorAll('#printPick .chip.selected');
+    if(chips.length > 0){
+      return Array.from(chips).map(c => {
+        const inp = c.querySelector('input[type=checkbox]');
+        return inp ? inp.value : null;
+      }).filter(Boolean);
+    }
+
+    if(VEH && VEH.length > 0) return VEH.map(v => v[Object.keys(v)[0]] || v.no || v.NO || String(v));
+    return [];
+  }
+
+  function findVehByNo(no){
+    if(!VEH || !VEH.length) return null;
+    return VEH.find(v => {
+      const keys = Object.keys(v);
+      return String(v[keys[0]]) === String(no);
+    });
+  }
+
+  let navList = [];
+  let navIdx  = 0;
+
+  function updateNav(){
+    const btnPrev = document.getElementById('btnPrev');
+    const btnNext = document.getElementById('btnNext');
+    const counter = document.getElementById('navCounter');
+    const nopol   = document.getElementById('navNopol');
+    if(!btnPrev||!btnNext||!counter||!nopol) return;
+
+    const select = document.getElementById('pickNo');
+    if(VEH && VEH.length > 0){
+      navList = VEH.map((v,i) => i);
+    } else {
+      navList = [];
+    }
+
+    if(navList.length === 0){
+      counter.textContent = '—';
+      nopol.textContent   = 'Upload Excel dulu';
+      btnPrev.disabled = true;
+      btnNext.disabled = true;
+      return;
+    }
+
+    const curVal = select ? select.value : '';
+    const curIdx = VEH.findIndex(v => {
+      const k = Object.keys(v)[0];
+      return String(v[k]) === String(curVal);
+    });
+    navIdx = curIdx >= 0 ? curIdx : 0;
+
+    counter.textContent = `${navIdx + 1} / ${VEH.length}`;
+    const curVeh = VEH[navIdx];
+    if(curVeh){
+      const keys = Object.keys(curVeh);
+      nopol.textContent = curVeh[keys[0]] || '—';
+    }
+
+    btnPrev.disabled = (navIdx <= 0);
+    btnNext.disabled = (navIdx >= VEH.length - 1);
+  }
+
+  function navigateTo(idx){
+    if(!VEH || idx < 0 || idx >= VEH.length) return;
+    navIdx = idx;
+    const select = document.getElementById('pickNo');
+    if(select){
+      const v = VEH[idx];
+      const k = Object.keys(v)[0];
+      select.value = String(v[k]);
+
+      select.dispatchEvent(new Event('change'));
+    }
+    updateNav();
+  }
+
+  document.addEventListener('DOMContentLoaded', function(){
+    const btnPrev = document.getElementById('btnPrev');
+    const btnNext = document.getElementById('btnNext');
+    if(btnPrev) btnPrev.addEventListener('click', () => navigateTo(navIdx - 1));
+    if(btnNext) btnNext.addEventListener('click', () => navigateTo(navIdx + 1));
+  });
+
+  const _origPickNoHandler = function(){};
+  document.addEventListener('change', function(e){
+    if(e.target && e.target.id === 'pickNo'){
+      setTimeout(updateNav, 50);
+    }
+  });
+
+  const _origExcel = window.onExcelLoaded;
+  const origInterval = setInterval(function(){
+    const select = document.getElementById('pickNo');
+    if(select && !select.disabled && VEH && VEH.length > 0){
+      updateNav();
+      clearInterval(origInterval);
+    }
+  }, 300);
+
+  document.addEventListener('click', function(e){
+    if(e.target && e.target.closest && e.target.closest('.chip')){
+      setTimeout(updateNav, 50);
+    }
+  });
+
+})();
+
+let __styleCache = null;
+function getMainStyleForPrint(){
+  if(!__styleCache){
+    const styleEl = document.querySelector("style");
+    __styleCache = styleEl ? styleEl.innerHTML : "";
+  }
+  return __styleCache;
+}
+function cleanupPrintFrame(frame){
+  if(!frame) return;
+  setTimeout(()=>{ try{ frame.remove(); }catch(e){} },1200);
+}
+function printHTMLDocuments(papersHTML,title){
+  if(!papersHTML || !String(papersHTML).trim()){
+    alert("Tidak ada dokumen untuk dicetak.");
+    return;
+  }
+  const iframe=document.createElement("iframe");
+  iframe.setAttribute("aria-hidden","true");
+  iframe.style.position="fixed";
+  iframe.style.right="0";
+  iframe.style.bottom="0";
+  iframe.style.width="0";
+  iframe.style.height="0";
+  iframe.style.border="0";
+  iframe.style.opacity="0";
+  document.body.appendChild(iframe);
+  const doc=iframe.contentWindow.document;
+  const safeTitle=typeof escapeHtml==="function" ? escapeHtml(title||"BASTK Print") : (title||"BASTK Print");
+  doc.open();
+  doc.write(`<!DOCTYPE html><html lang="id"><head><meta charset="UTF-8"><title>${safeTitle}</title><base href="${location.href}"><style>${getMainStyleForPrint()}</style></head><body style="margin:0;background:#fff;">${papersHTML}</body></html>`);
+  doc.close();
+  let _printed = false;
+  const doPrint=()=>{
+    if(_printed) return;
+    _printed = true;
+    try{
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    }catch(err){
+      alert("Gagal membuka dialog print: "+err.message);
+    }
+  };
+
+  iframe.onload = doPrint;
+  setTimeout(doPrint, 80);
+  try{ iframe.contentWindow.onafterprint=()=>cleanupPrintFrame(iframe); }catch(e){}
+  setTimeout(()=>cleanupPrintFrame(iframe),10000);
+}
+function buildDocFromVehicle(no,base){
+  if(!VEH || !VEH.length) return null;
+  const r=VEH.find(x=> String(x.No)===String(no) || String(x.NO)===String(no) || String(x["No"])===String(no));
+  if(!r) return null;
+  return {
+    ...base,
+    No:String(no),
+    noPol:r.noPol || r.NOPOL || r["No. Polisi"] || "",
+    merkType:r.merkType || r.MERKTYPE || r["Merk"] || r["Material Desc"] || "",
+    warna:r.warna || r.WARNA || r["Warna"] || "",
+    noRangka:r.noRangka || r.NORANGKA || r["No. Rangka"] || "",
+    noMesin:r.noMesin || r.NOMESIN || r["No. Mesin"] || "",
+    tujuan:r.tujuan || r.TUJUAN || r["Tujuan"] || "",
+    alamatTujuan:r.alamat || r.ALAMAT || r["Alamat"] || "",
+    pic:r.pic || r.PIC || r["PIC"] || "",
+    hp:r.hp || r.HP || r["No. HP"] || ""
+  };
+}
+function doPrintCurrentFixed(){
+  try{
+    syncToPaper();
+    const d=getDoc();
+    if(!d.tgl){ alert("Harap isi Tanggal terlebih dahulu."); return; }
+    const paper=buildPaperHTML(d);
+    printHTMLDocuments(paper,`BASTK-${d.noPol || "dokumen"}`);
+  }catch(e){
+    alert("Gagal print dokumen: "+e.message);
+  }
+}
+function doPrintAllFixed(){
+  try{
+    if(!VEH || !VEH.length){ alert("Upload Excel dulu untuk print terpilih."); return; }
+    const picked=getSelectedNos();
+    if(!picked || !picked.length){ alert("Silakan centang minimal 1 No untuk Print Terpilih."); return; }
+    const base=getDoc();
+    if(!base.tgl){ alert("Harap isi Tanggal terlebih dahulu."); return; }
+
+    const _logoCache = getLogo();
+    const _signCache = getSign() || SIGN_DEFAULT_SRC;
+    const _styleCache = getMainStyleForPrint();
+
+    const _origGetLogo = getLogo, _origGetSign = getSign, _origGetStyle = getMainStyleForPrint;
+    window.getLogo = ()=>_logoCache;
+    window.getSign = ()=>_signCache;
+    window.getMainStyleForPrint = ()=>_styleCache;
+
+    const sep = '<div style="page-break-after:always;break-after:page;"></div>';
+    const papers = picked
+      .map(no=>buildDocFromVehicle(no,base))
+      .filter(Boolean)
+      .map(d=>buildPaperHTML(d))
+      .join(sep);
+
+    window.getLogo = _origGetLogo;
+    window.getSign = _origGetSign;
+    window.getMainStyleForPrint = _origGetStyle;
+
+    if(!papers.trim()){ alert("Data kendaraan terpilih tidak ditemukan."); return; }
+    printHTMLDocuments(papers,"BASTK-Print-Terpilih");
+  }catch(e){
+    alert("Gagal print terpilih: "+e.message);
+  }
+}
+
+window.printSaved = function(id){
+  try{
+    const d = readSaved().find(x => x.id === id);
+    if(!d){ alert("Dokumen tersimpan tidak ditemukan."); return; }
+    const paper = buildPaperHTML(d);
+    printHTMLDocuments(paper, `BASTK-${d.noPol || "saved"}`);
+  }catch(e){
+    alert("Gagal print dokumen tersimpan: " + e.message);
+  }
+};
+
+document.addEventListener("DOMContentLoaded", function(){
+  const btnPrintOne = document.getElementById("btnPrintOne");
+  const btnPrintAll = document.getElementById("btnPrintAll");
+  if(btnPrintOne) btnPrintOne.onclick = doPrintCurrentFixed;
+  if(btnPrintAll) btnPrintAll.onclick = doPrintAllFixed;
 });
+
+(function() {
+  let isDragging = false;
+  let dragAction = null;
+  let startChip = null;
+  let didDrag = false;
+
+  function setChipState(chip, checked) {
+    const cb = chip.querySelector('input[type="checkbox"]');
+    if (!cb || cb.checked === checked) return;
+    cb.checked = checked;
+    chip.classList.toggle('selected', checked);
+    syncChkAll();
+  }
+
+  function syncChkAll() {
+    const all = [...document.querySelectorAll('.chkNo')];
+    const allChecked = all.every(x => x.checked);
+    const noneChecked = all.every(x => !x.checked);
+    chkAll.checked = allChecked;
+    chkAll.indeterminate = !allChecked && !noneChecked;
+  }
+
+  document.addEventListener('click', function(e) {
+    if (didDrag) return; // skip click if it was a drag
+    const chip = e.target.closest('#printPick .chip');
+    if (!chip) return;
+    const cb = chip.querySelector('input[type="checkbox"]');
+    if (!cb) return;
+
+    cb.checked = !cb.checked;
+    chip.classList.toggle('selected', cb.checked);
+    syncChkAll();
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousedown', function(e) {
+    const chip = e.target.closest('#printPick .chip');
+    if (!chip) return;
+    startChip = chip;
+    isDragging = false;
+    didDrag = false;
+    const cb = chip.querySelector('input[type="checkbox"]');
+    if (!cb) return;
+    dragAction = cb.checked ? 'uncheck' : 'check';
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!startChip) return;
+    const chip = e.target.closest('#printPick .chip');
+    if (!chip) return;
+    if (!isDragging) {
+      isDragging = true;
+      didDrag = true;
+
+      setChipState(startChip, dragAction === 'check');
+      e.preventDefault();
+    }
+    setChipState(chip, dragAction === 'check');
+  });
+
+  document.addEventListener('mouseup', function() {
+    setTimeout(() => { didDrag = false; }, 50);
+    startChip = null;
+    isDragging = false;
+    dragAction = null;
+  });
+
+  document.addEventListener('touchstart', function(e) {
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const chip = el && el.closest('#printPick .chip');
+    if (!chip) return;
+    startChip = chip;
+    isDragging = false;
+    didDrag = false;
+    const cb = chip.querySelector('input[type="checkbox"]');
+    if (!cb) return;
+    dragAction = cb.checked ? 'uncheck' : 'check';
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!startChip) return;
+    const touch = e.touches[0];
+    const el = document.elementFromPoint(touch.clientX, touch.clientY);
+    const chip = el && el.closest('#printPick .chip');
+    if (!chip) return;
+    if (!isDragging) {
+      isDragging = true;
+      didDrag = true;
+      setChipState(startChip, dragAction === 'check');
+    }
+    setChipState(chip, dragAction === 'check');
+  }, { passive: true });
+
+  document.addEventListener('touchend', function() {
+    if (!didDrag && startChip) {
+
+      const cb = startChip.querySelector('input[type="checkbox"]');
+      if (cb) {
+        cb.checked = !cb.checked;
+        startChip.classList.toggle('selected', cb.checked);
+        syncChkAll();
+      }
+    }
+    setTimeout(() => { didDrag = false; }, 50);
+    startChip = null;
+    isDragging = false;
+    dragAction = null;
+  });
+})();
+
+(function(){
+  function debounce(fn, ms){
+    var t; return function(){ var a=arguments,c=this; clearTimeout(t); t=setTimeout(function(){ fn.apply(c,a); },ms); };
+  }
+  var dSync  = debounce(syncToPaper, 120);
+  var dShift = debounce(applyShift, 80);
+  var dSign  = debounce(applySignAdjust, 80);
+
+  ["tgl","pemberiNama","pemberiJabatan","pemberiPerusahaan","pemberiAlamat",
+   "penerimaNama","penerimaJabatan","penerimaPerusahaan","penerimaAlamat",
+   "keterangan","footer1","footer2","footer3"
+  ].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.oninput = dSync;
+  });
+  ["shiftX","shiftY"].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.oninput = dShift;
+  });
+  ["signScale","signLeft","signTop","signW","signH"].forEach(function(id){
+    var el = document.getElementById(id);
+    if(el) el.oninput = dSign;
+  });
+})();
+
+// ============================================================
+// SIMPAN PDF v6 — FIX: HD pakai JPEG 1.0 + scale:4 (bukan PNG scale:5)
+// PNG scale:5 = canvas 22MP → base64 >30MB → jsPDF crash "invalid length"
+// JPEG quality:1.0 scale:4 = 380dpi, tajam, ukuran wajar ~3-5MB/hal
+// ============================================================
+var _pdfCancelled = false;
+
+function cancelPdfSave(){
+  _pdfCancelled = true;
+  var btn = document.getElementById("btnCancelPdf");
+  if(btn) btn.disabled = true;
+}
+
+function showPdfProgress(show, label, pct){
+  var wrap = document.getElementById("pdfProgressWrap");
+  var lbl  = document.getElementById("pdfProgressLabel");
+  var pctEl = document.getElementById("pdfProgressPct");
+  var bar  = document.getElementById("pdfProgressBar");
+  var btn  = document.getElementById("btnCancelPdf");
+  if(!wrap) return;
+  wrap.style.display = show ? "flex" : "none";
+  if(lbl && label !== undefined) lbl.textContent = label;
+  if(pctEl) pctEl.textContent = (pct !== undefined ? pct : 0) + "%";
+  if(bar) bar.style.width = (pct !== undefined ? pct : 0) + "%";
+  if(btn) btn.disabled = false;
+}
+
+function setPdfBtnsDisabled(v){
+  ["btnSavePdfOne","btnSavePdfOneHD","btnSavePdfAll","btnSavePdfAllHD",
+   "btnPrintOne","btnPrintAll"].forEach(function(id){
+    var b = document.getElementById(id); if(b) b.disabled = v;
+  });
+}
+
+function delayMs(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+
+function renderPaperToCanvas(paperHTML, cssStyle, hdMode){
+  // Normal = scale:3 (~288dpi, JPEG 0.97)
+  // HD     = scale:4 (~380dpi, JPEG 1.0) — JANGAN scale:5+PNG: crash "invalid length"
+  var renderScale = hdMode ? 4 : 3;
+  return new Promise(function(resolve, reject){
+    var iframe = document.createElement("iframe");
+    iframe.setAttribute("aria-hidden","true");
+    iframe.style.cssText = (
+      "position:fixed;left:-9999px;top:0;"
+      + "width:794px;height:1123px;border:0;background:#fff;"
+    );
+    document.body.appendChild(iframe);
+
+    var extraCss = (
+      ".paper{margin:0!important;box-shadow:none!important;transform:none!important;}"
+      + "body,html{margin:0!important;padding:0!important;background:#fff!important;}"
+      + ".frame{display:none!important;}"
+      + ".paper-scroll,.preview-bar,.printHide{display:none!important;}"
+    );
+
+    var fullHTML = (
+      "<!DOCTYPE html><html lang='id'><head>"
+      + "<meta charset='UTF-8'>"
+      + "<base href='" + location.href + "'>"
+      + "<style>" + cssStyle + " " + extraCss + "</style>"
+      + "</head><body style='margin:0;background:#fff;'>"
+      + paperHTML + "</body></html>"
+    );
+
+    var iDoc = iframe.contentWindow.document;
+    iDoc.open(); iDoc.write(fullHTML); iDoc.close();
+
+    function doCapture(){
+      var paper = iDoc.querySelector(".paper");
+      if(!paper){
+        if(iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        return reject(new Error("Paper element tidak ditemukan"));
+      }
+      paper.style.transform = "none";
+      paper.style.margin = "0";
+      paper.style.boxShadow = "none";
+
+      html2canvas(paper, {
+        scale: renderScale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+        scrollX: 0,
+        scrollY: 0
+      }).then(function(canvas){
+        if(iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        resolve(canvas);
+      }).catch(function(err){
+        if(iframe.parentNode) iframe.parentNode.removeChild(iframe);
+        reject(err);
+      });
+    }
+
+    var fontReady = (iDoc.fonts && iDoc.fonts.ready) ? iDoc.fonts.ready : Promise.resolve();
+
+    function waitImgs(){
+      var imgs = iDoc.querySelectorAll("img");
+      if(!imgs.length) return Promise.resolve();
+      return Promise.all(Array.from(imgs).map(function(img){
+        if(img.complete) return Promise.resolve();
+        return new Promise(function(r){ img.onload=r; img.onerror=r; setTimeout(r,2500); });
+      }));
+    }
+
+    fontReady
+      .then(function(){ return waitImgs(); })
+      .then(function(){ return delayMs(hdMode ? 500 : 300); })
+      .then(function(){ doCapture(); })
+      .catch(function(){ delayMs(600).then(doCapture); });
+  });
+}
+
+async function generateAndDownloadPdf(docList, filename, hdMode){
+  if(!window.html2canvas || !window.jspdf){
+    alert("Library PDF belum siap. Refresh halaman atau cek koneksi internet.");
+    return;
+  }
+  _pdfCancelled = false;
+  var modeLabel = hdMode ? " HD" : "";
+  showPdfProgress(true, "Menyiapkan PDF" + modeLabel + "...", 0);
+  setPdfBtnsDisabled(true);
+
+  var jsPDF = window.jspdf.jsPDF;
+  // compress:FAST agar jsPDF tidak OOM saat proses gambar besar
+  var pdf = new jsPDF({ orientation:"portrait", unit:"mm", format:"a4", compress:true });
+  var cssStyle = getMainStyleForPrint();
+
+  try {
+    for(var i = 0; i < docList.length; i++){
+      if(_pdfCancelled) break;
+      var d = docList[i];
+      var pct = Math.round((i / docList.length) * 90);
+      showPdfProgress(true,
+        "Render " + (i+1) + "/" + docList.length + ": " + (d.noPol||"dok") + modeLabel + "...",
+        pct);
+
+      var canvas = await renderPaperToCanvas(buildPaperHTML(d), cssStyle, hdMode);
+
+      // HD: JPEG quality 1.0 (tidak ada kompresi lossy)
+      // Normal: JPEG quality 0.97
+      var q = hdMode ? 1.0 : 0.97;
+      var imgData = canvas.toDataURL("image/jpeg", q);
+
+      if(i > 0) pdf.addPage();
+      // alias="FAST" agar jsPDF pakai kompresi PDF stream, bukan simpan raw
+      pdf.addImage(imgData, "JPEG", 0, 0, 210, 297, undefined, "FAST");
+    }
+
+    if(!_pdfCancelled){
+      showPdfProgress(true, "Menyimpan PDF...", 99);
+      await delayMs(150);
+      pdf.save(filename + ".pdf");
+      showPdfProgress(false);
+      if(typeof showToast === "function") showToast("PDF tersimpan: " + filename + ".pdf", "ok");
+    } else {
+      showPdfProgress(false);
+      if(typeof showToast === "function") showToast("Simpan PDF dibatalkan.", "warn");
+    }
+  } catch(e){
+    showPdfProgress(false);
+    console.error("PDF error:", e);
+    alert("Gagal simpan PDF: " + e.message);
+  } finally {
+    setPdfBtnsDisabled(false);
+  }
+}
+
+async function doSavePdfOne(hdMode){
+  try {
+    if(typeof syncToPaper === "function") syncToPaper();
+    var d = getDoc();
+    if(!d.tgl){ alert("Harap isi Tanggal terlebih dahulu."); return; }
+    var nopol = d.noPol ? d.noPol.replace(/[^a-zA-Z0-9-]/g,"_") : "dokumen";
+    var suffix = hdMode ? "-HD" : "";
+    await generateAndDownloadPdf([d], "BASTK-" + nopol + suffix, hdMode);
+  } catch(e){
+    showPdfProgress(false); setPdfBtnsDisabled(false);
+    alert("Gagal simpan PDF: " + e.message);
+  }
+}
+
+async function doSavePdfAll(hdMode){
+  try {
+    if(typeof VEH === "undefined" || !VEH || !VEH.length){
+      alert("Upload Excel dulu untuk simpan PDF terpilih."); return;
+    }
+    var picked = getSelectedNos();
+    if(!picked || !picked.length){
+      alert("Centang minimal 1 nomor kendaraan."); return;
+    }
+    var base = getDoc();
+    if(!base.tgl){ alert("Harap isi Tanggal terlebih dahulu."); return; }
+
+    var _logo = getLogo();
+    var _sign = getSign() || (typeof SIGN_DEFAULT_SRC !== "undefined" ? SIGN_DEFAULT_SRC : "");
+    var oL = window.getLogo, oS = window.getSign;
+    window.getLogo = function(){ return _logo; };
+    window.getSign = function(){ return _sign; };
+    var docs = picked.map(function(no){ return buildDocFromVehicle(no,base); }).filter(Boolean);
+    window.getLogo = oL; window.getSign = oS;
+
+    if(!docs.length){ alert("Data kendaraan terpilih tidak ditemukan di Excel."); return; }
+
+    var tglStr = base.tgl ? base.tgl.replace(/[/\\]/g,"-") : "tanggal";
+    var suffix = hdMode ? "-HD" : "";
+    var namaFile = "BASTK-Terpilih-" + docs.length + "dok-" + tglStr + suffix;
+    await generateAndDownloadPdf(docs, namaFile, hdMode);
+  } catch(e){
+    showPdfProgress(false); setPdfBtnsDisabled(false);
+    alert("Gagal simpan PDF terpilih: " + e.message);
+  }
+}
 </script>
 </body>
 </html>
